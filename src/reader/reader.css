@@ -2,6 +2,10 @@ body.reading {
   overflow: hidden;
   background: #000;
 }
+:root.reader-menu-open,
+body.reading.reader-menu-open {
+  background: #101118;
+}
 .reader {
   position: fixed;
   inset: 0;

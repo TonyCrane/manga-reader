@@ -62,7 +62,7 @@ export type RefreshMode = "all" | "new";
 
 type Plan = {
   mangaPath: string;
-  tag?: string;
+  author?: string;
   chapters: { path: string; files: string[] | null }[];
 };
 
@@ -91,14 +91,17 @@ export function startImport(source: Source, mode: RefreshMode = "all") {
 
 async function run(source: Source, id: string, mode: RefreshMode) {
   const root = await safeDirectory(source.path);
-  let candidates: { p: string; tag?: string }[] = [];
+  let candidates: { p: string; author?: string }[] = [];
   if (source.mode === "manual") {
     candidates = [{ p: root }];
   } else if (source.mode === "one") {
     candidates = (await dirs(root)).map((p) => ({ p }));
   } else {
-    const groups = await mapConcurrent(await dirs(root), 8, async (tag) =>
-      (await dirs(tag)).map((p) => ({ p, tag: path.basename(tag) })),
+    const groups = await mapConcurrent(await dirs(root), 8, async (author) =>
+      (await dirs(author)).map((p) => ({
+        p,
+        author: path.basename(author),
+      })),
     );
     candidates = groups.flat();
   }
@@ -109,7 +112,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
       (chapter) => chapter.path,
     ),
   );
-  const scanned = await mapConcurrent(candidates, 8, async ({ p, tag }) => {
+  const scanned = await mapConcurrent(candidates, 8, async ({ p, author }) => {
     // Enumerate chapter names, but never enter known chapter image directories in new-only mode.
     const children = await dirs(p);
     const chapterDirs = children.length ? children : [p];
@@ -124,7 +127,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         chapters.push({ path: cp, files: images });
       }
     }
-    return { mangaPath: p, tag, chapters };
+    return { mangaPath: p, author, chapters };
   });
   const plans = scanned.filter((plan) => plan.chapters.length);
   const total = plans.reduce(
@@ -154,12 +157,16 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         ?.id || hash(mangaPath);
     db.transaction(() => {
       db.prepare(
-        "INSERT OR IGNORE INTO manga(id,path,title,tags) VALUES(?,?,?,?)",
+        `
+        INSERT OR IGNORE INTO manga(id,path,title,author,tags)
+        VALUES(?,?,?,?,?)
+        `,
       ).run(
         mid,
         mangaPath,
         path.basename(plan.mangaPath),
-        JSON.stringify(plan.tag ? [plan.tag] : []),
+        plan.author || "",
+        "[]",
       );
       db.prepare("INSERT OR IGNORE INTO manga_sources VALUES(?,?)").run(
         mid,
@@ -170,16 +177,13 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         path.basename(plan.mangaPath),
         mid,
       );
-      if (plan.tag) {
-        const row = db
-          .prepare("SELECT tags,manual_tags FROM manga WHERE id=?")
-          .get(mid) as any;
-        if (!row.manual_tags) {
-          db.prepare("UPDATE manga SET tags=? WHERE id=?").run(
-            JSON.stringify([...new Set([...JSON.parse(row.tags), plan.tag])]),
-            mid,
-          );
-        }
+      if (plan.author) {
+        db.prepare(
+          "UPDATE manga SET author=? WHERE id=? AND COALESCE(author,'')=''",
+        ).run(plan.author, mid);
+        db.prepare(
+          "UPDATE manga SET tags='[]' WHERE id=? AND manual_tags=0",
+        ).run(mid);
       }
     })();
     let position = 0;

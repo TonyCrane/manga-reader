@@ -93,7 +93,6 @@ export function Library() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [author, setAuthor] = useState("");
   const [ascending, setAscending] = useState(true);
   const [sort, setSort] = useState("title");
   const [selecting, setSelecting] = useState(false);
@@ -104,6 +103,7 @@ export function Library() {
     () => searchParams.getAll("tag"),
     [searchParams],
   );
+  const requestedAuthor = searchParams.get("author") || "";
   useEffect(() => {
     api<Manga[]>("/manga")
       .then(setManga)
@@ -121,6 +121,7 @@ export function Library() {
     () => [...new Set(requestedTags.filter((tag) => tags.includes(tag)))],
     [requestedTags, tags],
   );
+  const author = authors.includes(requestedAuthor) ? requestedAuthor : "";
   const filtered = useMemo(
     () =>
       manga
@@ -169,6 +170,16 @@ export function Library() {
     next.delete("tag");
     for (const tag of value) {
       next.append("tag", tag);
+    }
+    setSearchParams(next, { replace: true });
+  }
+
+  function changeAuthor(value: string) {
+    const next = new URLSearchParams(searchParams);
+    if (value) {
+      next.set("author", value);
+    } else {
+      next.delete("author");
     }
     setSearchParams(next, { replace: true });
   }
@@ -297,7 +308,7 @@ export function Library() {
             label="作者"
             options={authors}
             value={author}
-            onChange={setAuthor}
+            onChange={changeAuthor}
           />
         </div>
       </div>

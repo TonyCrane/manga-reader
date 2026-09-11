@@ -78,6 +78,19 @@ export function Reader() {
     };
   }, []);
   useEffect(() => {
+    const className = "reader-menu-open";
+    const color = menu ? "#101118" : "#000000";
+    document.documentElement.classList.toggle(className, menu);
+    document.body.classList.toggle(className, menu);
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", color);
+    return () => {
+      document.documentElement.classList.remove(className);
+      document.body.classList.remove(className);
+    };
+  }, [menu]);
+  useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(""), 2200);
       return () => clearTimeout(timer);

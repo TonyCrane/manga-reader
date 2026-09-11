@@ -443,13 +443,73 @@ app.get("/api/sources/:id/jobs", (req, res) =>
 );
 
 app.delete("/api/sources/:id", (req, res) => {
-  if (
-    db
-      .prepare("SELECT 1 FROM jobs WHERE source_id=? AND status='running'")
-      .get(req.params.id)
-  ) {
-    return res.status(409).json({ error: "请等待导入完成" });
+  const input = z
+    .object({ deleteManga: z.boolean().default(false) })
+    .parse(req.body ?? {});
+  const source = db
+    .prepare("SELECT id FROM sources WHERE id=?")
+    .get(req.params.id);
+  if (!source) {
+    return res.status(404).json({ error: "导入源不存在" });
   }
+  const running = input.deleteManga
+    ? db.prepare("SELECT 1 FROM jobs WHERE status='running'").get()
+    : db
+        .prepare("SELECT 1 FROM jobs WHERE source_id=? AND status='running'")
+        .get(req.params.id);
+  if (running) {
+    return res.status(409).json({
+      error: input.deleteManga
+        ? "请等待当前导入任务完成后再删除漫画"
+        : "请等待该目录导入完成",
+    });
+  }
+
+  if (input.deleteManga) {
+    const linkedCount = (
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM manga_sources WHERE source_id=?",
+        )
+        .get(req.params.id) as { count: number }
+    ).count;
+    const ids = (
+      db
+        .prepare(
+          `
+          SELECT ms.manga_id
+          FROM manga_sources ms
+          WHERE
+            ms.source_id = ?
+            AND NOT EXISTS (
+              SELECT 1
+              FROM manga_sources other
+              WHERE
+                other.manga_id = ms.manga_id
+                AND other.source_id <> ms.source_id
+            )
+          `,
+        )
+        .all(req.params.id) as { manga_id: string }[]
+    ).map((row) => row.manga_id);
+    const manga = ids.map(mangaForDeletion).filter((item) => item !== null);
+    for (const item of manga) {
+      removeMangaFiles(item);
+    }
+    const remove = db.prepare("DELETE FROM manga WHERE id=?");
+    db.transaction(() => {
+      for (const id of ids) {
+        remove.run(id);
+      }
+      db.prepare("DELETE FROM sources WHERE id=?").run(req.params.id);
+    })();
+    return res.json({
+      ok: true,
+      deletedManga: ids.length,
+      retainedManga: linkedCount - ids.length,
+    });
+  }
+
   db.transaction(() => {
     db.prepare(
       `
@@ -462,7 +522,7 @@ app.delete("/api/sources/:id", (req, res) => {
     ).run(req.params.id);
     db.prepare("DELETE FROM sources WHERE id=?").run(req.params.id);
   })();
-  res.json({ ok: true });
+  res.json({ ok: true, deletedManga: 0 });
 });
 
 app.post("/api/sources/:id/refresh", (req, res) => {

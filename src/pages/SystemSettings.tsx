@@ -32,6 +32,7 @@ export function SystemSettings() {
   const [refreshSource, setRefreshSource] = useState<Source | null>(null);
   const [adding, setAdding] = useState(false);
   const [editingSource, setEditingSource] = useState<Source | null>(null);
+  const [deletingSource, setDeletingSource] = useState<Source | null>(null);
   const [history, setHistory] = useState<Job[]>([]);
   const observedJobs = useRef(new Set<string>());
   async function refresh(id: string, mode: "all" | "new" = "all") {
@@ -214,7 +215,7 @@ export function SystemSettings() {
               </div>
             ))}
           <p className="hint">
-            刷新保留手动修改的信息。移除导入源不会删除漫画或素材。
+            刷新保留手动修改的信息；移除导入源时可选择是否清理平台漫画，素材始终保留。
           </p>
         </section>
       </div>
@@ -280,7 +281,7 @@ export function SystemSettings() {
               <select value={mode} onChange={(e) => setMode(e.target.value)}>
                 <option value="manual">完全手动 · 此目录就是一部漫画</option>
                 <option value="one">一层扫描 · 子目录分别作为漫画</option>
-                <option value="two">二层扫描 · 第一层标签，第二层漫画</option>
+                <option value="two">二层扫描 · 第一层作者，第二层漫画</option>
               </select>
             </label>
             <label>
@@ -374,20 +375,16 @@ export function SystemSettings() {
               <button
                 className="danger-button full"
                 disabled={busy || active}
-                onClick={() =>
-                  perform(async () => {
-                    await api(`/sources/${editingSource.id}`, {
-                      method: "DELETE",
-                    });
-                    setAdding(false);
-                  })
-                }
+                onClick={() => {
+                  setError("");
+                  setDeletingSource(editingSource);
+                }}
               >
                 <Trash2 size={16} />
                 移除导入目录
               </button>
               <p className="hint">
-                移除目录保留已导入漫画。修改设置后，下次刷新按新设置扫描。
+                移除时可以选择是否一并删除平台中的漫画，原始文件始终保留。
               </p>
               <h3 className="history-title">最近导入记录</h3>
               {history.length === 0 ? (
@@ -411,6 +408,67 @@ export function SystemSettings() {
               )}
             </>
           )}
+        </Sheet>
+      )}
+      {deletingSource && (
+        <Sheet title="移除导入目录" onClose={() => setDeletingSource(null)}>
+          <p>
+            请选择如何处理“
+            {deletingSource.path === "."
+              ? "素材根目录"
+              : deletingSource.path.split("/").pop() || deletingSource.path}
+            ”。以下操作都不会删除目录中的原始漫画文件。
+          </p>
+          <div className="refresh-options source-delete-options">
+            <button
+              disabled={busy || active}
+              onClick={() =>
+                void perform(async () => {
+                  await api(`/sources/${deletingSource.id}`, {
+                    method: "DELETE",
+                  });
+                  setDeletingSource(null);
+                  setAdding(false);
+                  setEditingSource(null);
+                })
+              }
+            >
+              <strong>仅移除导入源</strong>
+              <span>保留书架中的漫画及处理图片，停止从此目录刷新。</span>
+            </button>
+            <button
+              className="danger-option"
+              disabled={busy || active}
+              onClick={() =>
+                void perform(async () => {
+                  await api(
+                    `/sources/${deletingSource.id}`,
+                    json("DELETE", { deleteManga: true }),
+                  );
+                  setDeletingSource(null);
+                  setAdding(false);
+                  setEditingSource(null);
+                })
+              }
+            >
+              <strong>移除导入源并删除漫画</strong>
+              <span>
+                删除仅由此源导入的漫画记录与处理图片；同时关联其他源的漫画会保留。
+              </span>
+            </button>
+          </div>
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          <button
+            className="soft-button full source-delete-cancel"
+            disabled={busy}
+            onClick={() => setDeletingSource(null)}
+          >
+            取消
+          </button>
         </Sheet>
       )}
     </>

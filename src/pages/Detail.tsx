@@ -56,7 +56,17 @@ export function Detail() {
         <div className="detail-info">
           <h1>{m.title}</h1>
           <p className="muted">
-            {m.author || "作者未填写"}
+            {m.author ? (
+              <Link
+                className="author-link"
+                to={`/?author=${encodeURIComponent(m.author)}`}
+                aria-label={`在书架中筛选作者 ${m.author}`}
+              >
+                {m.author}
+              </Link>
+            ) : (
+              "作者未填写"
+            )}
             <span className="dot">·</span>
             {m.chapterCount} 话
           </p>
