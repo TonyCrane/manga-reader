@@ -15,12 +15,59 @@ import { UserManagement } from "../components/UserManagement";
 import { Link } from "react-router-dom";
 import type { User } from "../types";
 import { Sheet } from "../components/Sheet";
+import { parseTimestamp } from "../dates";
 
 const modes: Record<string, string> = {
   manual: "指定漫画",
   one: "一层扫描",
   two: "二层扫描",
 };
+
+function duration(seconds: number) {
+  const rounded = Math.max(1, Math.ceil(seconds));
+  if (rounded < 60) {
+    return `${rounded} 秒`;
+  }
+  if (rounded < 3600) {
+    return `${Math.ceil(rounded / 60)} 分钟`;
+  }
+  if (rounded < 86400) {
+    const totalMinutes = Math.ceil(rounded / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return minutes ? `${hours} 小时 ${minutes} 分钟` : `${hours} 小时`;
+  }
+  const totalHours = Math.ceil(rounded / 3600);
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  return hours ? `${days} 天 ${hours} 小时` : `${days} 天`;
+}
+
+function jobEstimate(job: Job) {
+  if (job.total <= 0) {
+    return {
+      percent: job.status === "completed" ? 100 : 0,
+      remaining: job.status === "running" ? "正在统计图片" : "",
+    };
+  }
+  const completed = Math.min(job.done, job.total);
+  const percent = Math.floor((completed / job.total) * 100);
+  if (job.status !== "running") {
+    return { percent, remaining: "" };
+  }
+  if (completed <= 0) {
+    return { percent, remaining: "正在估算剩余时间" };
+  }
+  const elapsed = (Date.now() - parseTimestamp(job.created)) / 1000;
+  if (!Number.isFinite(elapsed) || elapsed <= 0) {
+    return { percent, remaining: "正在估算剩余时间" };
+  }
+  const remaining = ((job.total - completed) * elapsed) / completed;
+  return {
+    percent,
+    remaining: remaining > 0 ? `预计剩余 ${duration(remaining)}` : "即将完成",
+  };
+}
 
 export function SystemSettings() {
   const { user } = useAccount();
@@ -192,28 +239,36 @@ export function SystemSettings() {
               (j) => j.status === "running" || observedJobs.current.has(j.id),
             )
             .slice(0, 3)
-            .map((j) => (
-              <div className={`job ${j.status}`} key={j.id}>
-                <div>
-                  <strong>
-                    {j.status === "running"
-                      ? "正在处理图片"
-                      : j.status === "failed"
-                        ? "导入未完成"
-                        : "导入完成"}
-                  </strong>
-                  <span>
-                    {j.done} / {j.total}
-                  </span>
+            .map((j) => {
+              const estimate = jobEstimate(j);
+              return (
+                <div className={`job ${j.status}`} key={j.id}>
+                  <div>
+                    <strong>
+                      {j.status === "running"
+                        ? j.total > 0
+                          ? "正在处理图片"
+                          : "正在扫描目录"
+                        : j.status === "failed"
+                          ? "导入未完成"
+                          : "导入完成"}
+                    </strong>
+                    <span>
+                      {estimate.percent}% · {j.done} / {j.total}
+                    </span>
+                  </div>
+                  <progress
+                    aria-label={`图片处理进度 ${estimate.percent}%`}
+                    value={j.done}
+                    max={j.total || 1}
+                  />
+                  <p>{j.error || j.message}</p>
+                  {estimate.remaining && (
+                    <small className="job-estimate">{estimate.remaining}</small>
+                  )}
                 </div>
-                <progress
-                  aria-label="图片处理进度"
-                  value={j.done}
-                  max={j.total || 1}
-                />
-                <p>{j.error || j.message}</p>
-              </div>
-            ))}
+              );
+            })}
           <p className="hint">
             刷新保留手动修改的信息；移除导入源时可选择是否清理平台漫画，素材始终保留。
           </p>

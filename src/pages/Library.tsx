@@ -15,11 +15,17 @@ import { useAccount } from "../account";
 import { TagInput } from "../components/TagInput";
 import { parseTimestamp } from "../dates";
 import { SearchFilter } from "../components/SearchFilter";
-import { api, json } from "../api";
+import { api } from "../api";
 import type { Manga } from "../types";
 import { Sheet } from "../components/Sheet";
 
 const maxBatchSize = 500;
+
+type DeleteProgress = {
+  completed: number;
+  total: number;
+  title: string;
+};
 
 function LibraryCard({
   manga,
@@ -99,6 +105,9 @@ export function Library() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState<DeleteProgress | null>(
+    null,
+  );
   const requestedTags = useMemo(
     () => searchParams.getAll("tag"),
     [searchParams],
@@ -230,19 +239,39 @@ export function Library() {
 
   async function deleteSelected() {
     const ids = [...selectedIds];
+    const titles = new Map(manga.map((item) => [item.id, item.title]));
+    let completed = 0;
     setDeleting(true);
     setError("");
+    setDeleteProgress({ completed, total: ids.length, title: "" });
     try {
-      await api("/manga", json("DELETE", { ids }));
-      setManga((current) =>
-        current.filter((item) => !selectedIds.has(item.id)),
-      );
+      for (const id of ids) {
+        const title = titles.get(id) || id;
+        setDeleteProgress({ completed, total: ids.length, title });
+        await api(`/manga/${id}`, { method: "DELETE" });
+        completed++;
+        setDeleteProgress({ completed, total: ids.length, title });
+        setManga((current) => current.filter((item) => item.id !== id));
+        setSelectedIds((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+      }
       setConfirmDelete(false);
       finishSelecting();
     } catch (deleteError) {
-      setError((deleteError as Error).message);
+      setError(
+        `已删除 ${completed} / ${ids.length} 部；${(deleteError as Error).message}`,
+      );
     } finally {
       setDeleting(false);
+    }
+  }
+
+  function closeDeleteSheet() {
+    if (!deleting) {
+      setConfirmDelete(false);
     }
   }
 
@@ -355,6 +384,7 @@ export function Library() {
               disabled={!selectedIds.size}
               onClick={() => {
                 setError("");
+                setDeleteProgress(null);
                 setConfirmDelete(true);
               }}
             >
@@ -403,14 +433,39 @@ export function Library() {
         </div>
       )}
       {confirmDelete && (
-        <Sheet title="批量删除漫画" onClose={() => setConfirmDelete(false)}>
+        <Sheet title="批量删除漫画" onClose={closeDeleteSheet}>
           <p>
-            将删除所选 {selectedIds.size}
+            将删除所选
+            {deleting && deleteProgress
+              ? ` ${deleteProgress.total}`
+              : ` ${selectedIds.size}`}
             部漫画的平台信息、章节、处理图片和上传封面。原始漫画目录和图片会保留。
           </p>
           <p className="hint">
             若目录仍在导入源中，后续刷新会重新导入这些漫画。
           </p>
+          {deleteProgress && (
+            <div className="delete-progress" role="status" aria-live="polite">
+              <div>
+                <span>
+                  {deleting && deleteProgress.title
+                    ? `正在删除：${deleteProgress.title}`
+                    : "删除进度"}
+                </span>
+                <strong>
+                  {Math.floor(
+                    (deleteProgress.completed / deleteProgress.total) * 100,
+                  )}
+                  % · {deleteProgress.completed} / {deleteProgress.total}
+                </strong>
+              </div>
+              <progress
+                aria-label="批量删除进度"
+                value={deleteProgress.completed}
+                max={deleteProgress.total || 1}
+              />
+            </div>
+          )}
           {error && (
             <p className="error" role="alert">
               {error}
@@ -420,7 +475,7 @@ export function Library() {
             <button
               className="soft-button"
               disabled={deleting}
-              onClick={() => setConfirmDelete(false)}
+              onClick={closeDeleteSheet}
             >
               取消
             </button>
@@ -429,7 +484,11 @@ export function Library() {
               disabled={deleting}
               onClick={() => void deleteSelected()}
             >
-              {deleting ? "正在删除…" : "确认删除"}
+              {deleting
+                ? "正在删除…"
+                : deleteProgress && selectedIds.size > 0
+                  ? `继续删除剩余 ${selectedIds.size} 部`
+                  : "确认删除"}
             </button>
           </div>
         </Sheet>

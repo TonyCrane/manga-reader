@@ -602,6 +602,11 @@ a svg {
 .job.failed p {
   color: #c45d50;
 }
+.job-estimate {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+}
 progress {
   width: 100%;
   height: 5px;
@@ -1342,6 +1347,28 @@ form h3 {
 }
 .confirm-actions .danger-button {
   margin: 0;
+}
+.delete-progress {
+  padding: 14px 16px;
+  margin-top: 18px;
+  border-radius: 9px;
+  background: var(--soft);
+}
+.delete-progress > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.delete-progress > div span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.delete-progress > div strong {
+  flex-shrink: 0;
+  color: var(--text);
 }
 .history-title {
   margin-top: 28px;
