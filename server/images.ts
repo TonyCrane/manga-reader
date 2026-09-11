@@ -9,6 +9,39 @@ sharp.concurrency(1);
 export const hash = (value: string) =>
   crypto.createHash("sha256").update(value).digest("hex").slice(0, 24);
 
+export const chapterProcessingVersion = "v3";
+
+type PagePart = {
+  left: number;
+  width: number;
+  height: number;
+  part: string;
+};
+
+function splitPage(width: number, height: number): PagePart[] {
+  const count = width > height * 2 ? 4 : width > height ? 2 : 1;
+  if (count === 1) {
+    return [{ left: 0, width, height, part: "single" }];
+  }
+
+  return Array.from({ length: count }, (_, outputIndex) => {
+    const sourceIndex = count - outputIndex - 1;
+    const left = Math.floor((width * sourceIndex) / count);
+    const right = Math.floor((width * (sourceIndex + 1)) / count);
+    return {
+      left,
+      width: right - left,
+      height,
+      part:
+        count === 2
+          ? outputIndex === 0
+            ? "right"
+            : "left"
+          : `quarter-${outputIndex + 1}`,
+    };
+  });
+}
+
 export async function outputsExist(files: string[]) {
   return (
     await mapConcurrent(files, 8, async (file) => {
@@ -39,22 +72,10 @@ export async function processChapter(
       if (!width || !height) {
         throw Error(`无法识别图片 ${file}`);
       }
-      return { width, height, spread: width > height };
+      return { width, height };
     },
   );
-  const parts = metadata.map(({ width, height, spread }) =>
-    spread
-      ? [
-          {
-            left: Math.floor(width / 2),
-            width: width - Math.floor(width / 2),
-            height,
-            part: "right",
-          },
-          { left: 0, width: Math.floor(width / 2), height, part: "left" },
-        ]
-      : [{ left: 0, width, height, part: "single" }],
-  );
+  const parts = metadata.map(({ width, height }) => splitPage(width, height));
   const ratio = parts
     .flat()
     .reduce(

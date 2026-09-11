@@ -2,7 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { mapConcurrent } from "./concurrency";
-import { hash, outputsExist, processChapter } from "./images";
+import {
+  chapterProcessingVersion,
+  hash,
+  outputsExist,
+  processChapter,
+} from "./images";
 import { db, mangaDir } from "./db";
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -197,7 +202,9 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         (file, index) =>
           `${path.basename(file)}:${stats[index].size}:${stats[index].mtimeMs}`,
       );
-      const fingerprint = hash("v2:" + signatures.join("|"));
+      const fingerprint = hash(
+        `${chapterProcessingVersion}:${signatures.join("|")}`,
+      );
       const old = db
         .prepare("SELECT * FROM chapters WHERE id=?")
         .get(cid) as any;
