@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, BookOpen, Pencil } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  BookOpen,
+  Pencil,
+} from "lucide-react";
 import { api } from "../api";
 import type { Manga } from "../types";
 import { useAccount } from "../account";
@@ -13,6 +20,7 @@ export function Detail() {
   const [m, setM] = useState<Manga | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
+  const [ascending, setAscending] = useState(true);
   const [version, setVersion] = useState(0);
   const load = () =>
     api<Manga>(`/manga/${id}`)
@@ -23,6 +31,13 @@ export function Detail() {
   }, [id]);
   if (!m) {
     return <div className="loading">{error || "正在打开漫画…"}</div>;
+  }
+  const chapters = m.chapters.map((chapter, index) => ({
+    chapter,
+    number: index + 1,
+  }));
+  if (!ascending) {
+    chapters.reverse();
   }
   return (
     <>
@@ -78,21 +93,29 @@ export function Detail() {
           <h2>
             章节目录 <small>共 {m.chapters.length} 话</small>
           </h2>
-          <span className="muted">正序</span>
+          <button
+            className="chapter-order"
+            aria-label={ascending ? "正序，切换为倒序" : "倒序，切换为正序"}
+            title={ascending ? "切换为倒序" : "切换为正序"}
+            onClick={() => setAscending((value) => !value)}
+          >
+            {ascending ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+            {ascending ? "正序" : "倒序"}
+          </button>
         </div>
         <div className="chapter-grid">
-          {m.chapters.map((c, i) => (
+          {chapters.map(({ chapter, number }) => (
             <Link
-              key={c.id}
-              to={`/read/${id}/${c.id}`}
+              key={chapter.id}
+              to={`/read/${id}/${chapter.id}`}
               className="chapter-card"
             >
               <span className="chapter-number">
-                {String(i + 1).padStart(2, "0")}
+                {String(number).padStart(2, "0")}
               </span>
               <div>
-                <strong>{c.title}</strong>
-                <small>{c.pages.length} 页</small>
+                <strong>{chapter.title}</strong>
+                <small>{chapter.pages.length} 页</small>
               </div>
               <ArrowRight size={18} />
             </Link>
