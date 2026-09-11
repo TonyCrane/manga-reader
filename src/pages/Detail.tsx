@@ -47,7 +47,11 @@ export function Detail() {
       </Link>
       <section className="detail-hero">
         <div className="detail-cover">
-          <img src={`/api/manga/${id}/cover?v=${version}`} alt={m.title} />
+          <img
+            src={`/api/manga/${id}/cover?size=small&v=${version}`}
+            alt={m.title}
+            decoding="async"
+          />
         </div>
         <div className="detail-info">
           <h1>{m.title}</h1>
@@ -60,10 +64,15 @@ export function Detail() {
             {m.published ? `发布时间 ${m.published}` : "发布时间未填写"}
           </p>
           <div className="tags">
-            {m.tags.map((t) => (
-              <span className="tag" key={t}>
-                {t}
-              </span>
+            {m.tags.map((tag) => (
+              <Link
+                className="tag tag-link"
+                key={tag}
+                to={`/?tag=${encodeURIComponent(tag)}`}
+                aria-label={`在书架中筛选标签 ${tag}`}
+              >
+                {tag}
+              </Link>
             ))}
           </div>
           <div className="detail-actions">

@@ -21,10 +21,13 @@ export async function safeDirectory(input: string) {
   return resolved;
 }
 
-async function dirs(p: string) {
+async function dirs(p: string, includeHidden = false) {
   return (await fs.readdir(p, { withFileTypes: true }))
-    .filter((e) => e.isDirectory() && !e.name.startsWith("."))
-    .map((e) => path.join(p, e.name))
+    .filter(
+      (entry) =>
+        entry.isDirectory() && (includeHidden || !entry.name.startsWith(".")),
+    )
+    .map((entry) => path.join(p, entry.name))
     .sort(compare);
 }
 
@@ -44,7 +47,7 @@ export async function browse(input: string) {
   return {
     path: p,
     root: await fs.realpath(mangaDir),
-    directories: await dirs(p),
+    directories: await dirs(p, true),
   };
 }
 

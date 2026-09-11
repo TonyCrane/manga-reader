@@ -237,6 +237,11 @@ a svg {
 .page-heading p {
   margin-bottom: 0;
 }
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .count {
   font-size: 13px;
   letter-spacing: 0;
@@ -335,6 +340,11 @@ a svg {
 .manga-card {
   min-width: 0;
 }
+.manga-select {
+  width: 100%;
+  padding: 0;
+  text-align: left;
+}
 .cover {
   aspect-ratio: 3/4;
   border-radius: 10px;
@@ -342,6 +352,10 @@ a svg {
   background: var(--soft);
   position: relative;
   box-shadow: 0 4px 12px #00000007;
+}
+.manga-select.selected .cover {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
 }
 .cover img {
   width: 100%;
@@ -365,6 +379,25 @@ a svg {
   opacity: 0;
   font-size: 13px;
   transition: opacity 180ms;
+}
+.cover-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  background: #252b3680;
+  box-shadow: 0 2px 9px #0003;
+}
+.manga-select.selected .cover-select {
+  background: var(--accent);
 }
 .manga-card h3 {
   margin: 15px 0 6px;
@@ -391,6 +424,36 @@ a svg {
   color: var(--muted);
   background: var(--soft);
   font-weight: 400;
+}
+.tag-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+}
+.bulk-toolbar strong {
+  color: var(--text);
+}
+.bulk-toolbar > div {
+  display: flex;
+  gap: 10px;
+}
+.bulk-toolbar .danger-button {
+  margin: 0;
 }
 .empty {
   text-align: center;
@@ -693,6 +756,7 @@ progress::-webkit-progress-value {
 }
 .tags {
   display: flex;
+  flex-wrap: wrap;
   gap: 7px;
   margin: 18px 0;
 }
@@ -837,8 +901,12 @@ form h3 {
     border-color: var(--accent);
   }
   .soft-button:hover,
-  .icon:hover {
+  .icon:hover,
+  .tag-link:hover {
     background: var(--soft);
+  }
+  .tag-link:hover {
+    color: var(--accent);
   }
 }
 @media (min-width: 1600px) {
@@ -904,6 +972,9 @@ form h3 {
   .page-heading .muted {
     font-size: 12px;
   }
+  .page-actions {
+    gap: 6px;
+  }
   .library-toolbar {
     padding: 0;
     border: 0;
@@ -962,6 +1033,13 @@ form h3 {
   .card-tags span {
     font-size: 9px;
     padding: 3px 5px;
+  }
+  .bulk-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .bulk-toolbar > div > button {
+    flex: 1;
   }
 
   .settings-layout {

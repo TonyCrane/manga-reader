@@ -18,6 +18,90 @@ import { canRead, requireAdmin, sourceList, setSourceUsers } from "./access";
 import { browse, safeDirectory, startImport, relativePath } from "./importer";
 
 const app = express();
+const mangaIdSchema = z.string().regex(/^[a-f0-9]{24}$/, "无效的漫画 ID");
+
+type MangaForDeletion = {
+  id: string;
+  cover: string | null;
+  chapterIds: string[];
+};
+
+function mangaForDeletion(id: string): MangaForDeletion | null {
+  const manga = db.prepare("SELECT id,cover FROM manga WHERE id=?").get(id) as
+    { id: string; cover: string | null } | undefined;
+  if (!manga) {
+    return null;
+  }
+  return {
+    ...manga,
+    chapterIds: (
+      db.prepare("SELECT id FROM chapters WHERE manga_id=?").all(id) as {
+        id: string;
+      }[]
+    ).map((chapter) => chapter.id),
+  };
+}
+
+function removeMangaFiles(manga: MangaForDeletion) {
+  for (const chapterId of manga.chapterIds) {
+    if (!mangaIdSchema.safeParse(chapterId).success) {
+      throw Error("无效的章节 ID");
+    }
+    fs.rmSync(path.join(processedDir, chapterId), {
+      recursive: true,
+      force: true,
+    });
+  }
+  if (!mangaIdSchema.safeParse(manga.id).success) {
+    throw Error("无效的漫画 ID");
+  }
+  fs.rmSync(path.join(processedDir, "covers", manga.id), {
+    recursive: true,
+    force: true,
+  });
+  if (manga.cover && /^cover-[a-f0-9-]+\.webp$/.test(manga.cover)) {
+    fs.rmSync(path.join(processedDir, manga.cover), { force: true });
+  }
+}
+
+function coverFile(manga: NonNullable<ReturnType<typeof detail>>) {
+  return manga.cover || manga.chapters[0]?.pages[0]?.optimized;
+}
+
+async function smallCover(mangaId: string, source: string) {
+  const signature = crypto
+    .createHash("sha256")
+    .update(`v1:480x640:${source}`)
+    .digest("hex")
+    .slice(0, 24);
+  const directory = path.join("covers", mangaId);
+  const name = path.join(directory, `thumbnail-${signature}.webp`);
+  const output = path.join(processedDir, name);
+  if (!fs.existsSync(output) || fs.statSync(output).size === 0) {
+    fs.mkdirSync(path.join(processedDir, directory), { recursive: true });
+    const pending = path.join(
+      processedDir,
+      directory,
+      `pending-${crypto.randomUUID()}.webp`,
+    );
+    try {
+      await sharp(path.join(processedDir, source))
+        .resize({
+          width: 480,
+          height: 640,
+          fit: "cover",
+          withoutEnlargement: true,
+        })
+        .webp({ quality: 82, effort: 4 })
+        .toFile(pending);
+      fs.renameSync(pending, output);
+    } catch (error) {
+      fs.rmSync(pending, { force: true });
+      throw error;
+    }
+  }
+  return name;
+}
 
 app.disable("x-powered-by");
 
@@ -69,6 +153,39 @@ app.use("/api/chapters/:id", requireAdmin, (req, res, next) => {
 app.get("/api/manga", (_req, res) =>
   res.json(mangaList().filter((m) => canRead(res.locals.user.id, m.id))),
 );
+
+app.delete("/api/manga", requireAdmin, (req, res) => {
+  if (db.prepare("SELECT 1 FROM jobs WHERE status='running'").get()) {
+    return res.status(409).json({ error: "请等待导入完成后再删除漫画" });
+  }
+  const input = z
+    .object({
+      ids: z
+        .array(mangaIdSchema)
+        .min(1, "请至少选择一部漫画")
+        .max(500, "一次最多删除 500 部漫画"),
+    })
+    .parse(req.body);
+  const ids = [...new Set(input.ids)];
+  const manga: MangaForDeletion[] = [];
+  for (const id of ids) {
+    const item = mangaForDeletion(id);
+    if (!item || !canRead(res.locals.user.id, id)) {
+      return res.status(404).json({ error: "漫画不存在或无权访问" });
+    }
+    manga.push(item);
+  }
+  for (const item of manga) {
+    removeMangaFiles(item);
+  }
+  const remove = db.prepare("DELETE FROM manga WHERE id=?");
+  db.transaction(() => {
+    for (const id of ids) {
+      remove.run(id);
+    }
+  })();
+  res.json({ ok: true, deleted: ids.length });
+});
 
 app.get("/api/manga/:id", (req, res) => {
   const m = detail(String(req.params.id));
@@ -144,28 +261,12 @@ app.delete("/api/manga/:id", (req, res) => {
   if (db.prepare("SELECT 1 FROM jobs WHERE status='running'").get()) {
     return res.status(409).json({ error: "请等待导入完成后再删除漫画" });
   }
-  const m = detail(String(req.params.id));
-  if (!m) {
+  const manga = mangaForDeletion(String(req.params.id));
+  if (!manga) {
     return res.status(404).json({ error: "漫画不存在" });
   }
-  // Only server-generated IDs inside the processed mount may be removed.
-  for (const c of m.chapters) {
-    if (!/^[a-f0-9]{24}$/.test(c.id)) {
-      throw Error("无效的章节 ID");
-    }
-    fs.rmSync(path.join(processedDir, c.id), { recursive: true, force: true });
-  }
-  if (!/^[a-f0-9]{24}$/.test(m.id)) {
-    throw Error("无效的漫画 ID");
-  }
-  fs.rmSync(path.join(processedDir, "covers", m.id), {
-    recursive: true,
-    force: true,
-  });
-  if (m.cover && /^cover-[a-f0-9-]+\.webp$/.test(m.cover)) {
-    fs.rmSync(path.join(processedDir, m.cover), { force: true });
-  }
-  db.prepare("DELETE FROM manga WHERE id=?").run(m.id);
+  removeMangaFiles(manga);
+  db.prepare("DELETE FROM manga WHERE id=?").run(manga.id);
   res.json({ ok: true });
 });
 
@@ -232,11 +333,32 @@ app.post("/api/manga/:id/cover", upload.single("cover"), async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/manga/:id/cover", (req, res) => {
+app.get("/api/manga/:id/cover", async (req, res) => {
   const m = detail(String(req.params.id));
-  const file = m?.cover || m?.chapters[0]?.pages[0]?.optimized;
-  if (!file) {
+  if (!m) {
     return res.status(404).end();
+  }
+  const source = coverFile(m);
+  if (!source) {
+    return res.status(404).end();
+  }
+  let file = source;
+  if (req.query.size === "small") {
+    file = await smallCover(m.id, source);
+    const current = detail(m.id);
+    if (!current || !canRead(res.locals.user.id, m.id)) {
+      if (!current) {
+        fs.rmSync(path.join(processedDir, file), { force: true });
+      }
+      return res.status(404).end();
+    }
+    if (coverFile(current) !== source) {
+      return res.status(409).json({ error: "封面已更新，请重试" });
+    }
+    db.prepare("INSERT OR REPLACE INTO media_assets VALUES(?,?)").run(
+      file,
+      m.id,
+    );
   }
   res.sendFile(path.join(processedDir, file), { dotfiles: "allow" });
 });

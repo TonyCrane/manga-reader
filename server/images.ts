@@ -82,7 +82,7 @@ export async function processChapter(
             recursive: true,
           });
           const padding = canvasHeight - part.height;
-          const { data, info } = await sharp(file)
+          const extracted = await sharp(file)
             .rotate()
             .extract({
               left: part.left,
@@ -90,17 +90,46 @@ export async function processChapter(
               width: part.width,
               height: part.height,
             })
-            .extend({
-              top: Math.floor(padding / 2),
-              bottom: Math.ceil(padding / 2),
-              left: 0,
-              right: 0,
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+          const canvasChannels: 3 | 4 =
+            extracted.info.channels === 2 || extracted.info.channels === 4
+              ? 4
+              : 3;
+          // Sharp limits each extend side to 10,000 pixels. A black canvas has
+          // no such per-side limit and preserves the same centered geometry.
+          const { data, info } = await sharp({
+            create: {
+              width: part.width,
+              height: canvasHeight,
+              channels: canvasChannels,
               background: "#000",
-            })
+            },
+          })
+            .composite([
+              {
+                input: extracted.data,
+                raw: {
+                  width: extracted.info.width,
+                  height: extracted.info.height,
+                  channels: extracted.info.channels,
+                },
+                left: 0,
+                top: Math.floor(padding / 2),
+              },
+            ])
             .raw()
             .toBuffer({ resolveWithObject: true });
           const normalized = sharp(data, { raw: info });
           const small = sizes[index] < 300 * 1024 && part.width <= 1600;
+          const optimizedImage = normalized.clone();
+          if (part.width > 1600 || canvasHeight > 16000) {
+            optimizedImage.resize(
+              part.width / 1600 >= canvasHeight / 16000
+                ? { width: 1600, withoutEnlargement: true }
+                : { height: 16000, withoutEnlargement: true },
+            );
+          }
           const originalTemp = path.join(
             processedDir,
             directory,
@@ -113,9 +142,7 @@ export async function processChapter(
           );
           const outcomes = await Promise.allSettled([
             normalized.clone().png().toFile(originalTemp),
-            normalized
-              .clone()
-              .resize({ width: 1600, withoutEnlargement: true })
+            optimizedImage
               .webp(small ? { lossless: true } : { quality: 85, effort: 4 })
               .toFile(optimizedTemp),
           ]);
