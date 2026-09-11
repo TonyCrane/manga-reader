@@ -1,0 +1,198 @@
+# Agent 开发指南
+
+本文件用于无上下文接手开发。先读本文件，再按任务阅读相关代码；用户使用说明与 API 列表见 README.md。实现变化时同步维护这两份文档，各自保持用途明确。
+
+## 工作约定
+
+- 用中文沟通。先查看 `git status --short`，保留用户已有修改，不覆盖、不回滚无关文件。不要自动 commit 或 push，除非用户明确要求。
+- 保持代码可读：使用 TypeScript、现有 React 组件结构，避免压行、多条语句写一行和冗长内联逻辑。使用仓库 Prettier 配置（2 空格、双引号、分号、80 字符目标行宽），SQL 也应人工分行；Prettier 不会替你整理 SQL 字符串。
+- 当前没有正式单元测试目录或测试框架。可以在系统临时目录编写验证脚本，但不要把临时测试、截图、测试账号或测试依赖加入交付内容。如果未来仓库已有正式测试，只添加简洁有效的必要测试。
+- 不要在 README 写用户要求、开发过程、对话历史或进度汇报；README 只描述平台实际行为。
+- 目前按未发布项目维护，不要求兼容历史开发版数据库，没有自动迁移机制。不要擅自加入复杂的旧版本兼容流程；这不代表可以清空现有账号、漫画或数据目录，重置数据必须有明确授权。
+- 文档修改无需重建容器；应用修改需要验证构建，涉及当前运行服务时按任务范围重建并检查。
+
+## 产品边界与界面偏好
+
+- 名称为 **NAS 漫画阅读**，用于网页标题和 PWA 名称。favicon 使用 `public/icon-192.png`。不要额外添加站点 logo、宣传语、品牌区块或冗余说明。
+- 阅读交互参考 bilibili 漫画；没有弹幕、阅读历史、缓存管理、漫单、小说、未读/在读/更新完结角标。
+- 书架、设置导航在底部居中；阅读页面不显示这组导航。
+- 账号相关表单保持紧凑，桌面设置卡片不应被同一行的高卡片拉伸。勾选框使用蓝底白勾，不恢复浏览器默认的蓝底黑勾。
+- 书架亮暗模式在设置中切换；阅读背景始终黑色。主题与阅读偏好保存在浏览器 localStorage。
+- 标签筛选在左，作者在右。作者可搜索单选；标签可搜索多选且只能选已有标签，多个标签按“与”过滤。
+- 排序条件与升降序分开：名称、话数、导入时间、发布时间；升降序用独立图标按钮。未填写发布时间的漫画始终排在最后。
+- 标签编辑复用 `TagInput`：回车添加、标签上的 × 删除。筛选与自由编辑的限制不同，不要混淆。
+- 编辑标题时，未覆盖的值作为 placeholder，输入框为空；只显示扫描值，不使用“未填写（默认：xxx）”。发布时间使用日期选择器，导入时间使用日期时间选择器。
+- 更换封面仅在编辑信息中进入，不常驻封面上。图片选择按章节切换，不能一次渲染所有话的封面候选。
+- 不把“点击左侧下一页”等操作说明常驻到阅读画面；保留必要的无障碍标签。
+- 触摸控件需兼顾手机、横屏、安全区及键盘操作；动画遵守 `prefers-reduced-motion`。
+
+## 技术栈与运行方式
+
+- Node.js 22、npm，ES modules；React 19、React Router 7、TypeScript strict、Vite 6。
+- Express 5、better-sqlite3（SQLite WAL 和外键）、Sharp、Zod、Multer。
+- 没有额外数据库服务、ORM、前端全局状态库或 CSS 框架。
+- `npm run build` 先执行前后端 TypeScript 检查，再构建前端到 `dist/`；后端没有编译输出，运行时由 `tsx server/index.ts` 执行。
+- 生产由 Express 同时提供 API、受保护图片和 `dist/` 的 SPA。新 API 必须放在 SPA fallback 之前。
+- 不使用 `.env`、dotenv 或共享访问密钥，配置使用进程环境变量和 Compose。
+
+常用命令：
+
+```sh
+npm ci
+npm run check
+npm run build
+npm run format:check
+npm run format
+docker compose config --quiet
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail=50
+```
+
+不要仅为格式化一个文档就批量改动整个仓库，可使用 `npx --no-install prettier --write AGENTS.md`。
+
+### 本地开发与隔离验证
+
+- `npm run dev` 同时启动后端和 Vite（默认 5173）；`vite.config.ts` 将 `/api` 和 `/media` 固定代理到 3000。
+- 当前 Compose 也使用主机 3000 端口。启动 dev 前检查端口占用；若改后端端口，需同时调整 Vite 代理。
+- `npm start` 不构建前端，使用已有 `dist/`。修改前端后应先 build，或使用 Vite。
+- 独立验证优先运行一个不同端口的 Express 实例，配合全新的数据和处理目录；不要让两个后端共用数据库。数据库模块启动时会把未完成任务标记为失败，导入锁也只在单个进程内生效。
+
+例如从仓库根目录运行（先 build）：
+
+```sh
+scratch_dir="$(mktemp -d)"
+mkdir -p "$scratch_dir/manga"
+PORT=3002 BIND_ADDRESS=127.0.0.1 \
+  MANGA_DIR="$scratch_dir/manga" \
+  DATA_DIR="$scratch_dir/data" \
+  PROCESSED_DIR="$scratch_dir/processed" \
+  npm start
+```
+
+首次访问测试实例自行创建虚拟管理员；不要在用户实际实例中创建测试账号、重置密码或执行破坏性验证。结束后停止自己启动的进程。临时目录与历史临时脚本不是项目依赖，下次接手时不能假设它们仍存在。
+
+### Docker 与挂载
+
+- Dockerfile 为两阶段构建，生产保留 `tsx` 等运行依赖，使用 `node` 用户（UID/GID 1000），健康接口 `/api/health`。
+- 容器路径固定为 `/manga`（只读原素材）、`/data`（SQLite）、`/processed`（处理图片和上传封面）。
+- 主机挂载见当前 compose.yml。本机通常为 `/Users/crane/Downloads/manga`、`./.data`、`./.processed`；部署到其他主机应修改挂载，不把本机绝对路径写入业务逻辑。
+- 三个目录必须互不重叠，代码会解析实际路径检测；数据与处理目录须对容器用户可写。
+- 保持 Compose 简洁，volumes 用单行短语法。无需无故添加 `init`、`security_opt`、`cap_drop` 或复杂环境变量替换。
+- 容器构建时本机代理地址要使用 Docker 可访问的主机名，不能在容器内使用 127.0.0.1：
+
+  ```sh
+  docker compose build \
+    --build-arg HTTP_PROXY=http://host.docker.internal:7890 \
+    --build-arg HTTPS_PROXY=http://host.docker.internal:7890 \
+    --build-arg ALL_PROXY=socks5://host.docker.internal:7890
+  docker compose up -d
+  ```
+
+  宿主机执行命令前仍需设置前面的代理环境变量。better-sqlite3 的预编译下载曾在无代理时超时。
+
+- HTTPS 部署在 Compose 设置 `COOKIE_SECURE: "true"`，HTTP 本机访问使用 `"false"`。
+- 重建容器不等于删除挂载数据。备份数据库时使用 SQLite 一致性备份或先停止服务；不能只在运行时复制主数据库文件而遗漏 WAL。完整备份还需处理目录，源漫画独立备份。
+
+## 文件导航
+
+| 文件                                              | 职责                                                            |
+| ------------------------------------------------- | --------------------------------------------------------------- |
+| `src/main.tsx`                                    | React、BrowserRouter 和 Service Worker 注册入口                 |
+| `src/App.tsx`                                     | 初始化/登录状态、强制改密、路由、主题、底部导航                 |
+| `src/account.tsx`                                 | 当前用户 Context                                                |
+| `src/api.ts`                                      | fetch 封装、JSON 请求、401 跳转、强制改密事件、媒体 URL         |
+| `src/types.ts`                                    | 前端用户、漫画、章节、页面、导入源与任务类型                    |
+| `src/dates.ts`                                    | SQLite UTC 时间解析与 datetime-local 转换                       |
+| `src/pages/Library.tsx`                           | 书架、作者和标签过滤、排序                                      |
+| `src/pages/Detail.tsx`                            | 漫画详情、章节入口、管理员编辑入口                              |
+| `src/pages/Login.tsx`                             | 登录和首个管理员创建                                            |
+| `src/pages/Settings.tsx`                          | 外观、PWA 说明、改密、退出和系统设置入口                        |
+| `src/pages/SystemSettings.tsx`                    | 导入源 CRUD、目录浏览、可见用户、两种刷新、进度与历史           |
+| `src/components/MangaEditor.tsx`                  | 元信息、日期、标签、章节名、封面、漫画删除                      |
+| `src/components/UserManagement.tsx`               | 创建用户、重置密码、管理员身份                                  |
+| `src/components/PasswordForm.tsx`                 | 自助改密与首次强制改密复用表单                                  |
+| `src/components/TagInput.tsx`、`SearchFilter.tsx` | 标签 chips 和可搜索单选                                         |
+| `src/components/Sheet.tsx`                        | 原生 dialog、底部弹层、焦点恢复                                 |
+| `src/reader/Reader.tsx`                           | 阅读状态、章节跳转、预加载、横竖屏、滚动模式、菜单              |
+| `src/reader/useGestures.ts`                       | Pointer Events、点击/拖动、弹簧吸附、捏合缩放、双指轻点         |
+| `src/reader/pagination.ts`                        | 普通/错位双页配对与索引，null 代表补白页                        |
+| `src/style.css`、`src/reader/reader.css`          | 主界面样式和独立黑色阅读样式                                    |
+| `server/index.ts`                                 | Express 入口、中间件、漫画/封面/源/任务 API、媒体保护、静态服务 |
+| `server/db.ts`                                    | 路径检查、SQLite schema、查询辅助、重启任务状态处理             |
+| `server/auth.ts`                                  | 初始化、登录、会话、密码散列、自助改密及强制改密中间件          |
+| `server/users.ts`                                 | 管理员用户管理 API                                              |
+| `server/access.ts`                                | 目录授权、漫画可见性、管理员中间件                              |
+| `server/importer.ts`                              | 扫描计划、刷新策略、任务进度、章节发布、源关联                  |
+| `server/images.ts`                                | 方向校正、拆页、补边、逐页复用、PNG/WebP 输出                   |
+| `server/concurrency.ts`                           | 有上限并发任务映射及图片并发数                                  |
+| `index.html`、`public/manifest.webmanifest`       | 网页/PWA 名称、favicon、iOS 元数据                              |
+| `public/sw.js`                                    | 仅公开应用资源的 Service Worker 缓存                            |
+
+常用路由：`/` 书架、`/manga/:id` 详情、`/read/:id/:chapterId` 阅读、`/settings` 个人设置、`/settings/system` 管理员系统设置。登录与初始化由 App 状态控制，并非独立注册页面。
+
+## 认证与权限：不可破坏的约束
+
+- 账号只有邮箱和密码；无昵称、头像、邮箱认证、公开注册。邮箱去空格并转小写，密码 8–128 字符，使用随机盐和 scrypt。
+- 数据库没有用户时才允许首次创建管理员。初始化在异步散列之后通过事务再次检查，避免并发创建多个初始管理员。
+- 管理员创建用户、重置密码后必须强制改密。强制改密状态只允许会话/退出/改密相关操作，漫画和媒体均不可访问。
+- 管理员身份只赋予管理能力，**不绕过漫画可见性**。普通用户不能导入、编辑漫画、删除漫画或管理用户；系统始终保留至少一个管理员。
+- `source_users` 保存目录可见用户，`manga_sources` 保存漫画与目录多对多关系；漫画属于多个源时，对任一源授权即可阅读。
+- 删除源时，将当时授权保存到 `manga_users`，保留漫画。显式重新导入漫画后清除这份保留授权，以当前源授权为准，防止旧授权绕过新设置。
+- `media_assets` 将派生图片路径关联到漫画。新增输出/上传封面需登记所有权；不能把 `/processed` 暴露成无鉴权静态目录。
+- 不仅列表需要过滤：详情、章节修改、封面读取/上传/选择、`/media/*` 均需检查权限。前端隐藏按钮不能代替后端检查。
+- 会话 Cookie 为 HttpOnly、SameSite=Strict、30 天；数据库只保存 token 散列。退出撤销当前会话，改密/重置撤销该账号已有会话。
+- 异步密码散列和上传期间用户凭据或权限可能变化，保留操作提交前的重新校验。
+- API 和图片使用 `private, no-store`。不要为了性能引入会跨账号复用受保护内容的缓存。
+- 保留登录频率限制、同源写入检查与错误状态处理；新增管理 API 要接入对应中间件。
+
+## 导入与数据维护
+
+- 原素材绝不能修改或删除；删除漫画只清理平台数据及派生图片。源目录路径限制在素材挂载范围内，扫描不跟随符号链接。
+- `sources.mode` 是目录结构：`manual` 指定漫画、`one` 一层漫画、`two` 第一层标签/第二层漫画。
+- 刷新请求的 `mode` 是另一概念：`POST /api/sources/:id/refresh` 接受 `all` 或 `new`（默认 all），返回 202 和任务 ID。
+- `new` 只发现新漫画和新话，枚举父目录中的章节名称，但不进入已导入章节枚举/检查图片。已有话新增图片、源图修改、处理文件丢失都不会在此模式修复。
+- `all` 检查所有话，按文件名、大小和 mtime 计算指纹；未变化且输出存在时跳过。不是无条件重新压缩。
+- 漫画只有图片无子目录时为一话；有子目录时，每个包含图片的子目录为一话，根目录图片不参与。章节、图片都按字典序，不改成自然数字排序。
+- 导入不会主动删除旧漫画或章节。路径用于稳定身份，目录改名视为新内容；保留章节也参与最终字典序排序。
+- 标题使用 `scanned_title` 和 `title_override` 区分扫描值与手动值；手动标题、作者、日期、标签、封面及章节标题不能被刷新覆盖。`manual_tags` 决定扫描标签是否可以合并。
+- `chapters.pages` 是有序 JSON 数组，保存页面路径、尺寸、源文件及拆分侧。修改其形状需同时更新图片处理、读写 API、前端类型和阅读器。
+- 发布时间是日期字符串；导入时间 `created` 接受 ISO 日期时间。SQLite 默认时间无时区后缀但表示 UTC，使用 `src/dates.ts` 转换。未修改 datetime-local 时不要重新提交并截断秒数。
+- 当前仅支持单进程、单导入任务；不要直接扩成多实例共享 SQLite。任务状态为 running/completed/failed，进度按源图片计数，不能按拆页数量重复累加。
+- 导入页面只保留当前页面观察到的运行结果，刷新/重新进入后不持续展示完成结果；源设置中可以查看最近 20 次记录。
+
+### 图片管线与性能
+
+- 先按 EXIF 校正方向，宽大于高视为跨页，先右半页后左半页；奇数宽度也要完整保留像素。
+- 取整话拆页后最窄宽高比，向上下补黑边，不能左右补边或裁切画面。变化影响全话目标比例时，相关页面需要重新生成。
+- 原图选项是处理后的原分辨率无损 PNG，不是直接暴露原文件；优化图为最大宽 1600 的 WebP，质量 85，小文件走无损。
+- 当前输出在 `章节 ID/页面签名/page.png|page.webp` 下；签名包含源文件属性、拆分页位置及输出尺寸。不要仅用整话指纹组织缓存，否则新增一张图会让整话全部重做。
+- 缓存存在性检查也用于修复缺失输出；输出先写临时文件，编码成功后改名。不要提前发布不完整章节。
+- 方向校正、拆页、补边后先生成 raw buffer，再分别编码 PNG/WebP，避免中间 PNG 的重复编码/解码，也避免 Sharp 操作顺序让 resize/extend 改坏比例。
+- 图片并发按可用 CPU 限制为 1–4 张；Sharp 单任务线程数为 1，由原生线程池处理并行任务。目录、stat、输出检查也有并发上限，不能对全库图片使用无界 Promise.all。
+- `mapConcurrent` 保持输入结果顺序；发生失败时停止领取新任务，并等待正在运行的任务退出后再抛错。否则会提前释放导入锁，旧任务继续写盘。
+- 进度写入约每 100ms 合并一次，数据库记录用事务批量提交。章节处理失败时保留旧页面列表，重试复用已有完整输出。
+- 不随意删除旧签名目录，它们可能仍被手动封面或正在阅读的页面引用。
+
+## 阅读器与 PWA 维护
+
+- 竖屏单页，横屏双页前页在右后页在左、紧贴；每次移动一组双页。
+- 默认 1/2、3/4；双指轻点切换为补白/1、2/3、4/5。奇数尾页补纯白。配对不能跨章节，末页继续翻页则进入下一话并轻量提示。
+- 点击左侧下一页、右侧上一页、中间菜单；向右拖动下一页、向左上一页。拖动必须实时跟手，松开按位置/速度完成或回弹；边界有阻尼。
+- 手势需协调 Pointer Capture、取消、捏合与拖动中断。放大后单指拖动是移动图片，不翻页；双指缩小至原尺寸以下松手恢复。
+- 标题栏和底部菜单保持挂载以支持滑入/滑出；关闭时使用 inert/aria-hidden 和禁止指针事件，不能让隐藏控件取得焦点。
+- 相邻阅读组和下一话开头预加载；滚动阅读按需加载。避免一口气预加载整部漫画原图。
+- 修改网站名称时同步 HTML title、apple-mobile-web-app-title、manifest name/short_name；不顺便添加界面品牌标题。
+- Service Worker 不缓存 `/api/` 与 `/media/`，仅公开框架及静态资源。修改非哈希资源或缓存策略时检查是否需要更新 `public/sw.js` 的缓存版本。
+- PWA 真机安装需要 HTTPS（本机 localhost 除外）。浏览器模拟测试不能代替 iOS 真机的安装/手势验证，不要把未验证项宣称为通过。
+
+## 按改动范围验证
+
+- 通常执行 `npm run build` 与 `npm run format:check`，不添加与改动无关的测试体系。
+- UI：检查手机与桌面/横屏、亮暗模式、溢出、dialog 焦点、表单间距和筛选。有浏览器工具时直接操作验证。
+- 认证/权限：在隔离实例验证首次初始化竞争、首次改密限制、普通用户写入拒绝、管理员无阅读豁免、详情/封面/原图/优化图授权、密码重置后的会话撤销。
+- 导入：覆盖三种目录结构、两种刷新、已有章节跳过、源图变更、逐图复用、缺失输出修复、比例变化、字典序、手动元信息保留、失败重试及删除源后重新授权。
+- 阅读：验证拖动过程跟手、短拖回弹、跨话、横屏配对/补白/错位、缩放与取消、菜单动画、减少动态效果。
+- 部署后检查 `docker compose ps`、健康接口与日志；仅构建镜像不会更新已运行容器。
+- 本机参考素材在 `/Users/crane/Downloads/manga`，曾验证两话共 96 张源图生成 101 页。不要把样例数量当通用业务规则，测试输出必须使用独立挂载。
+- 本机视觉参考：Downloads 中 IMG_1869.PNG（书架）、IMG_1870.PNG（竖屏）、IMG_1871.PNG（菜单）、IMG_1872.PNG（设置）、IMG_1597.PNG（横屏）。这些不是部署或构建依赖，文件是否仍存在需自行确认。
