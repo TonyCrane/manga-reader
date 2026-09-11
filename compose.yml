@@ -1,0 +1,14 @@
+name: manga-reader
+services:
+  manga-reader:
+    build: .
+    image: manga-reader:local
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      COOKIE_SECURE: "false"
+    volumes:
+      - /path/to/manga:/manga:ro
+      - ./.data:/data
+      - ./.processed:/processed
