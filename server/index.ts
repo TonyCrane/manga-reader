@@ -6,7 +6,7 @@ import path from "node:path";
 import fs from "node:fs";
 import sharp from "sharp";
 import { z } from "zod";
-import { db, processedDir, detail, mangaList } from "./db";
+import { dataDir, db, mangaDir, processedDir, detail, mangaList } from "./db";
 import {
   publicAuth,
   authenticate,
@@ -16,19 +16,25 @@ import {
 import { userRoutes } from "./users";
 import { canRead, requireAdmin, sourceList, setSourceUsers } from "./access";
 import { browse, safeDirectory, startImport, relativePath } from "./importer";
+import { errorMessage, log } from "./log";
 
 const app = express();
 const mangaIdSchema = z.string().regex(/^[a-f0-9]{24}$/, "无效的漫画 ID");
 
 type MangaForDeletion = {
   id: string;
+  title: string;
+  path: string;
   cover: string | null;
   chapterIds: string[];
 };
 
 function mangaForDeletion(id: string): MangaForDeletion | null {
-  const manga = db.prepare("SELECT id,cover FROM manga WHERE id=?").get(id) as
-    { id: string; cover: string | null } | undefined;
+  const manga = db
+    .prepare("SELECT id,title,path,cover FROM manga WHERE id=?")
+    .get(id) as
+    | { id: string; title: string; path: string; cover: string | null }
+    | undefined;
   if (!manga) {
     return null;
   }
@@ -176,6 +182,12 @@ app.delete("/api/manga", requireAdmin, (req, res) => {
     manga.push(item);
   }
   for (const item of manga) {
+    log.info("manga.delete.started", "正在删除漫画", {
+      mangaId: item.id,
+      title: item.title,
+      path: item.path,
+      reason: "batch",
+    });
     removeMangaFiles(item);
   }
   const remove = db.prepare("DELETE FROM manga WHERE id=?");
@@ -184,6 +196,10 @@ app.delete("/api/manga", requireAdmin, (req, res) => {
       remove.run(id);
     }
   })();
+  log.info("manga.delete.completed", "批量删除漫画完成", {
+    reason: "batch",
+    mangaCount: ids.length,
+  });
   res.json({ ok: true, deleted: ids.length });
 });
 
@@ -265,8 +281,19 @@ app.delete("/api/manga/:id", (req, res) => {
   if (!manga) {
     return res.status(404).json({ error: "漫画不存在" });
   }
+  log.info("manga.delete.started", "正在删除漫画", {
+    mangaId: manga.id,
+    title: manga.title,
+    path: manga.path,
+    reason: "single",
+  });
   removeMangaFiles(manga);
   db.prepare("DELETE FROM manga WHERE id=?").run(manga.id);
+  log.info("manga.delete.completed", "漫画删除完成", {
+    mangaId: manga.id,
+    title: manga.title,
+    reason: "single",
+  });
   res.json({ ok: true });
 });
 
@@ -387,6 +414,12 @@ app.post("/api/sources", async (req, res) => {
     );
     setSourceUsers(id, body.userIds);
   })();
+  log.info("source.created", "导入源已添加", {
+    sourceId: id,
+    path: sourcePath,
+    mode: body.mode,
+    userCount: new Set(body.userIds).size,
+  });
   res.status(201).json({ id, path: sourcePath, mode: body.mode });
 });
 
@@ -427,6 +460,14 @@ app.patch("/api/sources/:id", async (req, res) => {
     }
     return result;
   })();
+  if (result.changes) {
+    log.info("source.updated", "导入源设置已更新", {
+      sourceId: String(req.params.id),
+      path: sourcePath,
+      mode: body.mode,
+      userCount: new Set(body.userIds).size,
+    });
+  }
   res
     .status(result.changes ? 200 : 404)
     .json(result.changes ? { ok: true } : { error: "导入源不存在" });
@@ -447,8 +488,9 @@ app.delete("/api/sources/:id", (req, res) => {
     .object({ deleteManga: z.boolean().default(false) })
     .parse(req.body ?? {});
   const source = db
-    .prepare("SELECT id FROM sources WHERE id=?")
-    .get(req.params.id);
+    .prepare("SELECT id,path,mode FROM sources WHERE id=?")
+    .get(req.params.id) as
+    { id: string; path: string; mode: string } | undefined;
   if (!source) {
     return res.status(404).json({ error: "导入源不存在" });
   }
@@ -464,15 +506,13 @@ app.delete("/api/sources/:id", (req, res) => {
         : "请等待该目录导入完成",
     });
   }
+  const linkedCount = (
+    db
+      .prepare("SELECT COUNT(*) AS count FROM manga_sources WHERE source_id=?")
+      .get(req.params.id) as { count: number }
+  ).count;
 
   if (input.deleteManga) {
-    const linkedCount = (
-      db
-        .prepare(
-          "SELECT COUNT(*) AS count FROM manga_sources WHERE source_id=?",
-        )
-        .get(req.params.id) as { count: number }
-    ).count;
     const ids = (
       db
         .prepare(
@@ -494,6 +534,13 @@ app.delete("/api/sources/:id", (req, res) => {
     ).map((row) => row.manga_id);
     const manga = ids.map(mangaForDeletion).filter((item) => item !== null);
     for (const item of manga) {
+      log.info("manga.delete.started", "正在删除漫画", {
+        mangaId: item.id,
+        title: item.title,
+        path: item.path,
+        reason: "source",
+        sourceId: String(req.params.id),
+      });
       removeMangaFiles(item);
     }
     const remove = db.prepare("DELETE FROM manga WHERE id=?");
@@ -503,6 +550,14 @@ app.delete("/api/sources/:id", (req, res) => {
       }
       db.prepare("DELETE FROM sources WHERE id=?").run(req.params.id);
     })();
+    log.info("source.deleted", "导入源及独有漫画已删除", {
+      sourceId: String(req.params.id),
+      path: source.path,
+      mode: source.mode,
+      deleteManga: true,
+      deletedManga: ids.length,
+      retainedManga: linkedCount - ids.length,
+    });
     return res.json({
       ok: true,
       deletedManga: ids.length,
@@ -522,6 +577,13 @@ app.delete("/api/sources/:id", (req, res) => {
     ).run(req.params.id);
     db.prepare("DELETE FROM sources WHERE id=?").run(req.params.id);
   })();
+  log.info("source.deleted", "导入源已删除，漫画保留", {
+    sourceId: String(req.params.id),
+    path: source.path,
+    mode: source.mode,
+    deleteManga: false,
+    retainedManga: linkedCount,
+  });
   res.json({ ok: true, deletedManga: 0 });
 });
 
@@ -573,34 +635,44 @@ app.get("/{*path}", (req, res) => {
 app.use(
   (
     error: any,
-    _req: express.Request,
+    req: express.Request,
     res: express.Response,
     _next: express.NextFunction,
   ) => {
-    console.error(error.message);
-    res
-      .status(
+    const status =
+      error instanceof z.ZodError
+        ? 400
+        : error.code === "SQLITE_CONSTRAINT_UNIQUE"
+          ? 409
+          : 400;
+    log.warn("request.failed", "请求处理失败", {
+      method: req.method,
+      path: req.path,
+      status,
+      error: errorMessage(error),
+    });
+    res.status(status).json({
+      error:
         error instanceof z.ZodError
-          ? 400
+          ? error.issues[0]?.message || "请检查输入内容"
           : error.code === "SQLITE_CONSTRAINT_UNIQUE"
-            ? 409
-            : 400,
-      )
-      .json({
-        error:
-          error instanceof z.ZodError
-            ? error.issues[0]?.message || "请检查输入内容"
-            : error.code === "SQLITE_CONSTRAINT_UNIQUE"
-              ? error.message.includes("users.email")
-                ? "该邮箱已存在"
-                : "该目录已添加为导入源"
-              : error.message || "请求失败",
-      });
+            ? error.message.includes("users.email")
+              ? "该邮箱已存在"
+              : "该目录已添加为导入源"
+            : error.message || "请求失败",
+    });
   },
 );
 
 app.listen(
   Number(process.env.PORT || 3000),
   process.env.BIND_ADDRESS || "0.0.0.0",
-  () => console.log("漫画阅读服务已启动"),
+  () =>
+    log.info("server.started", "漫画阅读服务已启动", {
+      bindAddress: process.env.BIND_ADDRESS || "0.0.0.0",
+      port: Number(process.env.PORT || 3000),
+      mangaDir,
+      dataDir,
+      processedDir,
+    }),
 );

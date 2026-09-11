@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import { log } from "./log";
 
 export const dataDir = path.resolve(process.env.DATA_DIR || ".data");
 
@@ -134,15 +135,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS media_manga ON media_assets(manga_id);
 `);
 
-db.prepare(
-  `
+const interruptedJobs = db
+  .prepare(
+    `
   UPDATE jobs
   SET
     status = 'failed',
     error = '服务重启中断了导入，请重新刷新'
   WHERE status IN ('running', 'queued')
   `,
-).run();
+  )
+  .run();
+if (interruptedJobs.changes) {
+  log.warn("jobs.interrupted", "未完成的导入任务已标记为失败", {
+    jobCount: interruptedJobs.changes,
+  });
+}
 
 export function mangaList() {
   return db

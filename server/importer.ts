@@ -9,6 +9,7 @@ import {
   processChapter,
 } from "./images";
 import { db, mangaDir } from "./db";
+import { errorMessage, log } from "./log";
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -77,12 +78,27 @@ export function startImport(source: Source, mode: RefreshMode = "all") {
   db.prepare(
     "INSERT INTO jobs(id,source_id,status,message) VALUES(?,?,'running','正在扫描目录')",
   ).run(id, source.id);
+  log.info("import.started", "导入任务已启动", {
+    jobId: id,
+    sourceId: source.id,
+    sourcePath: source.path,
+    sourceMode: source.mode,
+    refreshMode: mode,
+  });
   void run(source, id, mode)
-    .catch((e) =>
-      db
-        .prepare("UPDATE jobs SET status='failed',error=? WHERE id=?")
-        .run(String(e.message), id),
-    )
+    .catch((error) => {
+      const message = errorMessage(error);
+      db.prepare("UPDATE jobs SET status='failed',error=? WHERE id=?").run(
+        message,
+        id,
+      );
+      log.error("import.failed", "导入任务失败", {
+        jobId: id,
+        sourceId: source.id,
+        sourcePath: source.path,
+        error: message,
+      });
+    })
     .finally(() => {
       busy = false;
     });
@@ -90,6 +106,7 @@ export function startImport(source: Source, mode: RefreshMode = "all") {
 }
 
 async function run(source: Source, id: string, mode: RefreshMode) {
+  const startedAt = Date.now();
   const root = await safeDirectory(source.path);
   let candidates: { p: string; author?: string }[] = [];
   if (source.mode === "manual") {
@@ -134,6 +151,16 @@ async function run(source: Source, id: string, mode: RefreshMode) {
     (n, p) => n + p.chapters.reduce((n, c) => n + (c.files?.length || 0), 0),
     0,
   );
+  log.info("import.scanned", "导入目录扫描完成", {
+    jobId: id,
+    sourceId: source.id,
+    mangaCount: plans.length,
+    chapterCount: plans.reduce(
+      (count, plan) => count + plan.chapters.length,
+      0,
+    ),
+    imageCount: total,
+  });
   let done = 0;
   let reused = 0;
   let skippedChapters = 0;
@@ -152,6 +179,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
   db.prepare("UPDATE jobs SET total=? WHERE id=?").run(total, id);
   for (const plan of plans) {
     const mangaPath = relative(plan.mangaPath);
+    const scannedTitle = path.basename(plan.mangaPath);
     const mid =
       (db.prepare("SELECT id FROM manga WHERE path=?").get(mangaPath) as any)
         ?.id || hash(mangaPath);
@@ -161,20 +189,14 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         INSERT OR IGNORE INTO manga(id,path,title,author,tags)
         VALUES(?,?,?,?,?)
         `,
-      ).run(
-        mid,
-        mangaPath,
-        path.basename(plan.mangaPath),
-        plan.author || "",
-        "[]",
-      );
+      ).run(mid, mangaPath, scannedTitle, plan.author || "", "[]");
       db.prepare("INSERT OR IGNORE INTO manga_sources VALUES(?,?)").run(
         mid,
         source.id,
       );
       db.prepare("DELETE FROM manga_users WHERE manga_id = ?").run(mid);
       db.prepare("UPDATE manga SET scanned_title=? WHERE id=?").run(
-        path.basename(plan.mangaPath),
+        scannedTitle,
         mid,
       );
       if (plan.author) {
@@ -186,6 +208,25 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         ).run(mid);
       }
     })();
+    const mangaTitle = (
+      db.prepare("SELECT title FROM manga WHERE id=?").get(mid) as {
+        title: string;
+      }
+    ).title;
+    const mangaDoneBefore = done;
+    const mangaReusedBefore = reused;
+    const mangaSkippedBefore = skippedChapters;
+    log.info("import.manga.started", "正在导入漫画", {
+      jobId: id,
+      mangaId: mid,
+      title: mangaTitle,
+      path: mangaPath,
+      chapterCount: plan.chapters.length,
+      imageCount: plan.chapters.reduce(
+        (count, chapter) => count + (chapter.files?.length || 0),
+        0,
+      ),
+    });
     let position = 0;
     for (const chapter of plan.chapters) {
       const chapterPath = relative(chapter.path);
@@ -228,6 +269,14 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         progress(`已跳过未变化章节：${old.title}`, true);
         continue;
       }
+      log.info("import.chapter.started", "正在处理章节", {
+        jobId: id,
+        mangaId: mid,
+        mangaTitle,
+        chapterId: cid,
+        chapterTitle: path.basename(chapter.path),
+        imageCount: chapter.files.length,
+      });
       let completed = 0;
       const pages = await processChapter(
         cid,
@@ -294,15 +343,31 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         );
       }
     })();
+    log.info("import.manga.completed", "漫画导入完成", {
+      jobId: id,
+      mangaId: mid,
+      title: mangaTitle,
+      processedImages: done - mangaDoneBefore - (reused - mangaReusedBefore),
+      reusedImages: reused - mangaReusedBefore,
+      skippedChapters: skippedChapters - mangaSkippedBefore,
+    });
   }
   db.prepare("UPDATE sources SET last_scan=? WHERE id=?").run(
     new Date().toISOString(),
     source.id,
   );
+  const message = `${mode === "new" ? "新增刷新" : "全部刷新"}完成，处理 ${total - reused} 张，复用 ${reused} 张，跳过 ${skippedChapters} 话`;
   db.prepare(
     "UPDATE jobs SET status='completed',done=total,message=? WHERE id=?",
-  ).run(
-    `${mode === "new" ? "新增刷新" : "全部刷新"}完成，处理 ${total - reused} 张，复用 ${reused} 张，跳过 ${skippedChapters} 话`,
-    id,
-  );
+  ).run(message, id);
+  log.info("import.completed", "导入任务完成", {
+    jobId: id,
+    sourceId: source.id,
+    mangaCount: plans.length,
+    totalImages: total,
+    processedImages: total - reused,
+    reusedImages: reused,
+    skippedChapters,
+    durationMs: Date.now() - startedAt,
+  });
 }
