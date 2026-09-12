@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useId, type ReactNode } from "react";
 import { X } from "lucide-react";
 
 export function Sheet({
@@ -13,6 +13,7 @@ export function Sheet({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const el = ref.current!;
     const previous = document.activeElement as HTMLElement;
@@ -25,6 +26,7 @@ export function Sheet({
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       className={`sheet ${className}`}
       onCancel={(e) => {
         e.preventDefault();
@@ -39,7 +41,7 @@ export function Sheet({
       <div className="sheet-inner">
         <div className="handle" />
         <header>
-          <h2>{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <button className="icon" aria-label="关闭" onClick={onClose}>
             <X size={22} />
           </button>

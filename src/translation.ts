@@ -1,3 +1,5 @@
+import { api, json } from "./api";
+
 export const defaultTranslationPrompt = `你是一名熟悉日本漫画及其中文译名的翻译编辑。
 请将用户提供的日文漫画标题转换为简体中文标题。
 - 若能可靠识别作品，优先使用通行的简体中文译名。
@@ -15,44 +17,27 @@ export type TranslationSettings = {
   prompt: string;
 };
 
-const settingsKey = (userId: string) => `deepseek-translation:${userId}`;
+export const emptyTranslationSettings = (): TranslationSettings => ({
+  apiKey: "",
+  model: defaultTranslationModel,
+  prompt: defaultTranslationPrompt,
+});
 
-export function loadTranslationSettings(userId: string): TranslationSettings {
-  const defaults = {
-    apiKey: "",
-    model: defaultTranslationModel,
-    prompt: defaultTranslationPrompt,
-  };
-  try {
-    const value = JSON.parse(
-      localStorage.getItem(settingsKey(userId)) || "null",
-    );
-    return {
-      apiKey:
-        typeof value?.apiKey === "string" ? value.apiKey : defaults.apiKey,
-      model:
-        typeof value?.model === "string" && value.model.trim()
-          ? value.model
-          : defaults.model,
-      prompt:
-        typeof value?.prompt === "string" && value.prompt.trim()
-          ? value.prompt
-          : defaults.prompt,
-    };
-  } catch {
-    return defaults;
-  }
+export async function loadTranslationSettings(
+  signal?: AbortSignal,
+): Promise<TranslationSettings> {
+  const saved = await api<TranslationSettings | null>("/account/translation", {
+    signal,
+  });
+  return saved || emptyTranslationSettings();
 }
 
-export function saveTranslationSettings(
-  userId: string,
-  settings: TranslationSettings,
-) {
-  localStorage.setItem(settingsKey(userId), JSON.stringify(settings));
+export async function saveTranslationSettings(settings: TranslationSettings) {
+  await api("/account/translation", json("PUT", settings));
 }
 
-export function clearTranslationSettings(userId: string) {
-  localStorage.removeItem(settingsKey(userId));
+export async function clearTranslationSettings() {
+  await api("/account/translation", { method: "DELETE" });
 }
 
 export async function translateWithDeepSeek(

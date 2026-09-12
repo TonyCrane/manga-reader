@@ -3,6 +3,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+ARG GIT_BRANCH=unknown
+ARG GIT_SHA=unknown
+RUN node -e "require('fs').writeFileSync('build-info.json', JSON.stringify({branch: process.env.GIT_BRANCH, sha: process.env.GIT_SHA, builtAt: new Date().toISOString(), docker: true}))"
 RUN npm run build && npm prune --omit=dev
 
 FROM node:22-bookworm-slim
@@ -16,6 +19,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/server ./server
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/build-info.json ./build-info.json
 RUN mkdir -p /data /processed \
     && chown -R node:node /data /processed
 USER node

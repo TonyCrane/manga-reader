@@ -24,6 +24,9 @@ import {
 } from "./importer";
 import { errorMessage, log } from "./log";
 
+import { translationRoutes } from "./translation";
+import { versionInfo } from "./version";
+
 const app = express();
 const mangaIdSchema = z.string().regex(/^[a-f0-9]{24}$/, "无效的漫画 ID");
 
@@ -138,6 +141,8 @@ app.use("/api", publicAuth);
 app.use(["/api", "/media"], authenticate);
 app.use("/api", accountRoutes);
 app.use(["/api", "/media"], requirePasswordChanged);
+app.use("/api/account/translation", requireAdmin, translationRoutes);
+app.get("/api/version", (_req, res) => res.json(versionInfo));
 app.use("/api/users", userRoutes);
 app.use(["/api/sources", "/api/jobs", "/api/directories"], requireAdmin);
 app.use("/api/manga/:id", (req, res, next) => {

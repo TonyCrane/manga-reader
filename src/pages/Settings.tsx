@@ -1,8 +1,19 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Sun, Moon, LogOut, Settings2, ChevronRight } from "lucide-react";
+import {
+  Sun,
+  Moon,
+  LogOut,
+  Settings2,
+  ChevronRight,
+  Languages,
+  LockKeyhole,
+  Info,
+} from "lucide-react";
 import { useAccount } from "../account";
 import { TranslationSettings } from "../components/TranslationSettings";
+import { Sheet } from "../components/Sheet";
+import { About } from "../components/About";
 import { PasswordForm } from "../components/PasswordForm";
 
 export function SettingsPage({
@@ -15,36 +26,20 @@ export function SettingsPage({
   onLogout: () => Promise<void>;
 }) {
   const { user, setUser } = useAccount();
+  const [dialog, setDialog] = useState<
+    "translation" | "password" | "about" | null
+  >(null);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState("");
   return (
     <>
-      <section className="page-heading">
-        <h1>设置</h1>
+      <section className="page-heading settings-heading">
+        <div>
+          <h1>设置</h1>
+          <p className="muted settings-account">{user.email}</p>
+        </div>
       </section>
-      <div className="settings-layout">
-        <section className="panel">
-          <div className="panel-heading">
-            <h2>外观</h2>
-          </div>
-          <div className="theme-options">
-            <button
-              aria-pressed={theme === "light"}
-              className={theme === "light" ? "selected" : ""}
-              onClick={() => setTheme("light")}
-            >
-              <Sun size={24} />
-              <strong>亮色模式</strong>
-            </button>
-            <button
-              aria-pressed={theme === "dark"}
-              className={theme === "dark" ? "selected" : ""}
-              onClick={() => setTheme("dark")}
-            >
-              <Moon size={24} />
-              <strong>暗色模式</strong>
-            </button>
-          </div>
-        </section>
+      <div className="settings-home">
         <section className="panel">
           <h2>安装到主屏幕</h2>
           <p className="muted">
@@ -52,32 +47,104 @@ export function SettingsPage({
           </p>
           <p className="hint">需要 HTTPS。阅读漫画需要连接服务器。</p>
         </section>
-        {user.isAdmin && <TranslationSettings key={user.id} userId={user.id} />}
-        <section className="panel">
-          <h2>修改密码</h2>
-          <p className="muted">{user.email}</p>
-          <PasswordForm onChanged={setUser} />
-        </section>
-        <section className="panel">
-          <h2>账号</h2>
-          <p className="muted">{user.email}</p>
+        <section className="settings-group" aria-label="更多设置">
+          <div className="settings-row settings-appearance">
+            <Sun size={20} aria-hidden="true" />
+            <span>外观</span>
+            <div className="theme-switch" role="group" aria-label="外观">
+              <button
+                aria-pressed={theme === "light"}
+                onClick={() => setTheme("light")}
+              >
+                <Sun size={16} />
+                亮色
+              </button>
+              <button
+                aria-pressed={theme === "dark"}
+                onClick={() => setTheme("dark")}
+              >
+                <Moon size={16} />
+                暗色
+              </button>
+            </div>
+          </div>
           {user.isAdmin && (
-            <Link className="settings-link" to="/settings/system">
-              <Settings2 size={20} />
-              <span>系统设置</span>
-              <ChevronRight size={18} />
+            <button
+              className="settings-row"
+              onClick={() => setDialog("translation")}
+              aria-haspopup="dialog"
+            >
+              <Languages size={20} aria-hidden="true" />
+              <span>DeepSeek 设置</span>
+              <ChevronRight size={18} aria-hidden="true" />
+            </button>
+          )}
+          <button
+            className="settings-row"
+            onClick={() => setDialog("password")}
+            aria-haspopup="dialog"
+          >
+            <LockKeyhole size={20} aria-hidden="true" />
+            <span>修改密码</span>
+            <ChevronRight size={18} aria-hidden="true" />
+          </button>
+          {user.isAdmin && (
+            <Link className="settings-row" to="/settings/system">
+              <Settings2 size={20} aria-hidden="true" />
+              <span>系统管理</span>
+              <ChevronRight size={18} aria-hidden="true" />
             </Link>
           )}
           <button
-            className="soft-button"
-            onClick={() => onLogout().catch((error) => setError(error.message))}
+            className="settings-row"
+            onClick={() => setDialog("about")}
+            aria-haspopup="dialog"
           >
-            <LogOut size={17} />
-            退出登录
+            <Info size={20} aria-hidden="true" />
+            <span>关于</span>
+            <ChevronRight size={18} aria-hidden="true" />
           </button>
-          {error && <p className="error">{error}</p>}
         </section>
+        <button
+          className="settings-group settings-row settings-logout"
+          disabled={loggingOut}
+          onClick={async () => {
+            setError("");
+            setLoggingOut(true);
+            try {
+              await onLogout();
+            } catch (error) {
+              setError((error as Error).message);
+            } finally {
+              setLoggingOut(false);
+            }
+          }}
+        >
+          <LogOut size={18} aria-hidden="true" />
+          {loggingOut ? "正在退出…" : "退出登录"}
+        </button>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
       </div>
+      {dialog === "translation" && user.isAdmin && (
+        <Sheet title="DeepSeek 设置" onClose={() => setDialog(null)}>
+          <TranslationSettings key={user.id} userId={user.id} />
+        </Sheet>
+      )}
+      {dialog === "password" && (
+        <Sheet title="修改密码" onClose={() => setDialog(null)}>
+          <p className="muted settings-account">{user.email}</p>
+          <PasswordForm onChanged={setUser} />
+        </Sheet>
+      )}
+      {dialog === "about" && (
+        <Sheet title="关于" onClose={() => setDialog(null)}>
+          <About />
+        </Sheet>
+      )}
     </>
   );
 }

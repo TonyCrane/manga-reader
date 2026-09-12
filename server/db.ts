@@ -104,6 +104,13 @@ db.exec(`
     must_change_password INTEGER NOT NULL DEFAULT 1
   );
 
+  CREATE TABLE IF NOT EXISTS translation_settings (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    api_key TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     expires INTEGER NOT NULL,

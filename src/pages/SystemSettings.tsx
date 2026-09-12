@@ -167,7 +167,7 @@ export function SystemSettings() {
       </Link>
       <section className="page-heading">
         <div>
-          <h1>系统设置</h1>
+          <h1>系统管理</h1>
         </div>
       </section>
       {error && (

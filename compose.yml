@@ -1,7 +1,11 @@
 name: manga-reader
 services:
   manga-reader:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_BRANCH: ${GIT_BRANCH:-unknown}
+        GIT_SHA: ${GIT_SHA:-unknown}
     image: manga-reader:local
     restart: unless-stopped
     ports:

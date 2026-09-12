@@ -65,3 +65,10 @@ export interface User {
   librarySort: LibrarySort;
   libraryAscending: boolean;
 }
+
+export type VersionInfo = {
+  branch: string;
+  sha: string;
+  builtAt: string | null;
+  docker: boolean;
+};

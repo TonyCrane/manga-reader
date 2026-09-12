@@ -13,6 +13,11 @@ import { errorMessage, log } from "./log";
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
+// Numeric collation also handles names such as 2_page.jpg and page10.jpg.
+const imageOrder = new Intl.Collator("en", { numeric: true });
+const compareImages = (a: string, b: string) =>
+  imageOrder.compare(path.basename(a), path.basename(b)) || compare(a, b);
+
 const extensions = /\.(jpe?g|png|webp|avif|tiff?|gif)$/i;
 
 export async function safeDirectory(input: string) {
@@ -42,7 +47,7 @@ async function files(p: string) {
   return entries
     .filter((e) => e.isFile() && extensions.test(e.name))
     .map((e) => path.join(p, e.name))
-    .sort(compare);
+    .sort(compareImages);
 }
 
 export const relativePath = async (p: string) =>

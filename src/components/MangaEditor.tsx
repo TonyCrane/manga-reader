@@ -1,5 +1,4 @@
 import { loadTranslationSettings, translateWithDeepSeek } from "../translation";
-import { useAccount } from "../account";
 import { localDateTime } from "../dates";
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus, RotateCcw, Upload, Trash2 } from "lucide-react";
@@ -19,7 +18,6 @@ export function MangaEditor({
   onSaved: () => Promise<unknown>;
   onDelete: () => void;
 }) {
-  const { user } = useAccount();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [cover, setCover] = useState(false);
@@ -50,7 +48,7 @@ export function MangaEditor({
     try {
       const translated = await translateWithDeepSeek(
         source,
-        loadTranslationSettings(user.id),
+        await loadTranslationSettings(controller.signal),
         controller.signal,
       );
       if (controller.signal.aborted) {
