@@ -221,3 +221,10 @@ PORT=3002 BIND_ADDRESS=127.0.0.1 \
 - 阅读入口 `?page=N` 为从 1 开始的页码，校验并限制在章节内；横屏定位该页所在双页组，滚动模式定位该页。
 
 - 书架标题语言（日语/中文）与排序均按账号保存；偏好接口支持独立更新语言或排序，刷新后恢复账号选择。页面预览在章节跨分页时，分别提示前文所在分页与剩余页面将在下一页继续。
+
+### 中文标题翻译
+
+- `src/translation.ts` 负责 DeepSeek 设置读写与浏览器直连请求；`TranslationSettings` 在管理员个人设置中提供 API Key、模型、提示词、恢复默认提示词和清除配置。localStorage 键按用户 ID 隔离，不把个人 API Key 写入服务器数据库、日志或源码。
+- 接口固定为 `https://api.deepseek.com/chat/completions`，默认模型 `deepseek-flash`，关闭 thinking，temperature 0.2、max_tokens 512、非流式输出。提示词作为 system 消息，标题作为独立 user 消息；仅接受正常 stop 的非空单行文本，最多 200 字符，不使用 reasoning_content。
+- `MangaEditor` 使用当前日语输入或扫描默认值，自动填入中文但不自动保存；45 秒超时，卸载/保存时取消请求，等待期间标题变更则丢弃结果。翻译填入必须标记 dirty，缺少配置、鉴权失败、余额不足、限流或返回错误时保留原值。
+- 翻译请求使用 `credentials: omit` 和 `no-referrer`，不添加 NAS 代理。没有实际 API Key 时用临时模拟验证请求与错误分支，不能声称真实模型翻译质量已验证。

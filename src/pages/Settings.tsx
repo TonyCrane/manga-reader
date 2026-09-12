@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Sun, Moon, LogOut, Settings2, ChevronRight } from "lucide-react";
 import { useAccount } from "../account";
+import { TranslationSettings } from "../components/TranslationSettings";
 import { PasswordForm } from "../components/PasswordForm";
 
 export function SettingsPage({
@@ -51,6 +52,7 @@ export function SettingsPage({
           </p>
           <p className="hint">需要 HTTPS。阅读漫画需要连接服务器。</p>
         </section>
+        {user.isAdmin && <TranslationSettings key={user.id} userId={user.id} />}
         <section className="panel">
           <h2>修改密码</h2>
           <p className="muted">{user.email}</p>

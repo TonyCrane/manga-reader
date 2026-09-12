@@ -1,5 +1,7 @@
+import { loadTranslationSettings, translateWithDeepSeek } from "../translation";
+import { useAccount } from "../account";
 import { localDateTime } from "../dates";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ImagePlus, RotateCcw, Upload, Trash2 } from "lucide-react";
 import { Sheet } from "./Sheet";
 import { TagInput } from "./TagInput";
@@ -17,6 +19,7 @@ export function MangaEditor({
   onSaved: () => Promise<unknown>;
   onDelete: () => void;
 }) {
+  const { user } = useAccount();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [cover, setCover] = useState(false);
@@ -27,6 +30,59 @@ export function MangaEditor({
   const [tagsEdited, setTagsEdited] = useState(false);
   const [chapterId, setChapterId] = useState(m.chapters[0]?.id || "");
   const titleInput = useRef<HTMLInputElement>(null);
+  const titleZhInput = useRef<HTMLInputElement>(null);
+  const translationRequest = useRef<AbortController | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [translationMessage, setTranslationMessage] = useState("");
+  useEffect(() => () => translationRequest.current?.abort(), []);
+  async function translateTitle() {
+    if (translating || busy) {
+      return;
+    }
+    const source =
+      titleInput.current?.value.trim() || m.scanned_title || m.title;
+    const previous = titleZhInput.current?.value || "";
+    const controller = new AbortController();
+    translationRequest.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 45000);
+    setTranslating(true);
+    setTranslationMessage("");
+    try {
+      const translated = await translateWithDeepSeek(
+        source,
+        loadTranslationSettings(user.id),
+        controller.signal,
+      );
+      if (controller.signal.aborted) {
+        return;
+      }
+      const currentSource =
+        titleInput.current?.value.trim() || m.scanned_title || m.title;
+      if (
+        currentSource !== source ||
+        titleZhInput.current?.value !== previous
+      ) {
+        setTranslationMessage("标题已被修改，未覆盖当前内容，请重新翻译");
+        return;
+      }
+      fillDefault(titleZhInput.current, translated);
+      setTranslationMessage("已填入 DeepSeek 翻译结果，保存后生效");
+    } catch (error) {
+      setTranslationMessage(
+        controller.signal.aborted
+          ? "翻译已取消或超时，请重试"
+          : error instanceof TypeError
+            ? "无法连接 DeepSeek 翻译，请检查当前设备的网络或代理"
+            : (error as Error).message,
+      );
+    } finally {
+      clearTimeout(timeout);
+      if (translationRequest.current === controller) {
+        translationRequest.current = null;
+        setTranslating(false);
+      }
+    }
+  }
   const chapterInputs = useRef(new Map<string, HTMLInputElement>());
   const chapter = m.chapters.find((c) => c.id === chapterId);
   async function perform(fn: () => Promise<unknown>) {
@@ -68,6 +124,7 @@ export function MangaEditor({
           onChange={() => setDirty(true)}
           onSubmit={(e) => {
             e.preventDefault();
+            translationRequest.current?.abort();
             const f = new FormData(e.currentTarget);
             void perform(async () => {
               await api(
@@ -122,14 +179,32 @@ export function MangaEditor({
             />
           </label>
           <label>
-            中文标题
+            <span className="field-heading">
+              中文标题
+              <button
+                type="button"
+                className="fill-default"
+                aria-label="使用 DeepSeek 翻译日语标题"
+                disabled={busy || translating}
+                onClick={() => void translateTitle()}
+              >
+                {translating ? "翻译中…" : "DeepSeek 翻译"}
+              </button>
+            </span>
             <input
+              ref={titleZhInput}
+              aria-label="中文标题"
               name="titleZh"
               defaultValue={m.title_zh}
               placeholder="未填写"
               maxLength={200}
             />
           </label>
+          {translationMessage && (
+            <p className="hint" role="status">
+              {translationMessage}
+            </p>
+          )}
           <div className="form-grid">
             <label>
               作者
