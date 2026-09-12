@@ -214,6 +214,23 @@ export function SystemSettings() {
                       ? new Date(s.last_scan).toLocaleString("zh-CN")
                       : "尚未刷新"}
                   </small>
+                  {jobs
+                    .filter(
+                      (job) =>
+                        job.source_id === s.id && job.status === "running",
+                    )
+                    .map((job) => (
+                      <div key={job.id}>
+                        <small>
+                          {job.message} · {job.done} / {job.total}
+                        </small>
+                        <progress
+                          aria-label="目录图片处理进度"
+                          value={job.done}
+                          max={job.total || 1}
+                        />
+                      </div>
+                    ))}
                 </div>
                 <button
                   className="soft-button"

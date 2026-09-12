@@ -33,6 +33,7 @@ export interface UserRow {
 type UserPreferencesRow = {
   library_sort: string;
   library_ascending: number;
+  title_language: "ja" | "zh";
 };
 const librarySort = z.enum([
   "title",
@@ -44,7 +45,7 @@ const librarySort = z.enum([
 export const publicUser = (user: UserRow) => {
   const preferences = db
     .prepare(
-      "SELECT library_sort,library_ascending FROM user_preferences WHERE user_id=?",
+      "SELECT library_sort,library_ascending,title_language FROM user_preferences WHERE user_id=?",
     )
     .get(user.id) as UserPreferencesRow | undefined;
   return {
@@ -52,6 +53,7 @@ export const publicUser = (user: UserRow) => {
     email: user.email,
     isAdmin: !!user.is_admin,
     mustChangePassword: !!user.must_change_password,
+    titleLanguage: preferences?.title_language || "ja",
     librarySort: preferences?.library_sort || "title",
     libraryAscending: preferences ? !!preferences.library_ascending : true,
   };
@@ -205,19 +207,29 @@ accountRoutes.patch(
   (req, res) => {
     const input = z
       .object({
-        sort: librarySort,
-        ascending: z.boolean(),
+        sort: librarySort.optional(),
+        ascending: z.boolean().optional(),
+        titleLanguage: z.enum(["ja", "zh"]).optional(),
       })
       .parse(req.body);
+    const current = publicUser(res.locals.userRow);
     db.prepare(
       `
-      INSERT INTO user_preferences (user_id,library_sort,library_ascending)
-      VALUES (?,?,?)
+      INSERT INTO user_preferences (
+        user_id, library_sort, library_ascending, title_language
+      )
+      VALUES (?,?,?,?)
       ON CONFLICT(user_id) DO UPDATE SET
         library_sort = excluded.library_sort,
-        library_ascending = excluded.library_ascending
+        library_ascending = excluded.library_ascending,
+        title_language = excluded.title_language
       `,
-    ).run(res.locals.user.id, input.sort, Number(input.ascending));
+    ).run(
+      res.locals.user.id,
+      input.sort ?? current.librarySort,
+      Number(input.ascending ?? current.libraryAscending),
+      input.titleLanguage ?? current.titleLanguage,
+    );
     res.json({ ok: true });
   },
 );

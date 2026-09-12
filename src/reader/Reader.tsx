@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   Settings,
@@ -39,7 +39,13 @@ export function Reader() {
   const navigate = useNavigate();
   const [m, setM] = useState<Manga | null>(null);
   const [error, setError] = useState("");
-  const [page, setPage] = useState(0);
+  const [searchParams] = useSearchParams();
+  const requestedPage = Number(searchParams.get("page"));
+  const initialPage =
+    Number.isSafeInteger(requestedPage) && requestedPage > 0
+      ? requestedPage - 1
+      : 0;
+  const [page, setPage] = useState(initialPage);
   const [menu, setMenu] = useState(false);
   const [sheet, setSheet] = useState<"settings" | "chapters" | null>(null);
   const [prefs, setPrefs] = useState(preferences);
@@ -61,6 +67,20 @@ export function Reader() {
       .then(setM)
       .catch((e) => setError(e.message));
   }, [id]);
+  useEffect(() => {
+    if (chapter && searchParams.has("page")) {
+      const target = Math.min(
+        initialPage,
+        Math.max(0, chapter.pages.length - 1),
+      );
+      setPage(target);
+      if (prefs.mode === "scroll") {
+        document
+          .getElementById(`scroll-${chapter.id}-${target}`)
+          ?.scrollIntoView();
+      }
+    }
+  }, [chapter, searchParams]);
   useEffect(() => {
     localStorage.setItem("reader", JSON.stringify(prefs));
   }, [prefs]);
@@ -302,8 +322,6 @@ export function Reader() {
           if (!frame) {
             return null;
           }
-          const frameRatio =
-            frame.chapter.pages[0].width / frame.chapter.pages[0].height;
           return (
             <div
               key={direction}
@@ -315,10 +333,8 @@ export function Reader() {
               }}
             >
               <div
-                className="spread"
+                className={`spread ${double ? "double" : ""}`}
                 style={{
-                  width: `min(100vw, ${100 * frameRatio * (double ? 2 : 1)}dvh)`,
-                  aspectRatio: frameRatio * (double ? 2 : 1),
                   transform:
                     direction === 0
                       ? `translate3d(${view.x}px,${view.y}px,0) scale(${view.scale})`

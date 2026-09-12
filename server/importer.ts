@@ -257,10 +257,11 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         old?.fingerprint === fingerprint &&
         (await outputsExist(
           JSON.parse(old.pages).flatMap(
-            (page: { optimized: string; original: string }) => [
-              page.optimized,
-              page.original,
-            ],
+            (page: {
+              optimized: string;
+              original: string;
+              thumbnail: string;
+            }) => [page.optimized, page.original, page.thumbnail],
           ),
         ))
       ) {
@@ -296,7 +297,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
       );
       db.transaction(() => {
         for (const page of pages) {
-          for (const file of [page.original, page.optimized]) {
+          for (const file of [page.original, page.optimized, page.thumbnail]) {
             db.prepare("INSERT OR REPLACE INTO media_assets VALUES(?,?)").run(
               file,
               mid,
@@ -322,6 +323,10 @@ async function run(source: Source, id: string, mode: RefreshMode) {
           position++,
           JSON.stringify(pages),
           fingerprint,
+        );
+        db.prepare("INSERT OR REPLACE INTO chapter_versions VALUES (?, ?)").run(
+          cid,
+          chapterProcessingVersion,
         );
         db.prepare("UPDATE chapters SET scanned_title=? WHERE id=?").run(
           path.basename(chapter.path),
@@ -370,4 +375,140 @@ async function run(source: Source, id: string, mode: RefreshMode) {
     skippedChapters,
     durationMs: Date.now() - startedAt,
   });
+}
+
+// Upgrade existing records only: preserve retained grants, titles and source links.
+export async function upgradeImages() {
+  const chapters = db
+    .prepare(
+      `
+    SELECT c.id, c.manga_id, c.path, c.title,
+      (SELECT MIN(ms.source_id) FROM manga_sources ms
+       WHERE ms.manga_id = c.manga_id) AS source_id
+    FROM chapters c
+    LEFT JOIN chapter_versions v ON v.chapter_id = c.id
+    WHERE v.version IS NULL OR v.version <> ?
+    ORDER BY source_id, c.manga_id, c.position
+  `,
+    )
+    .all(chapterProcessingVersion) as {
+    id: string;
+    manga_id: string;
+    path: string;
+    title: string;
+    source_id: string | null;
+  }[];
+  if (!chapters.length) {
+    return;
+  }
+  busy = true;
+  const groups = new Map<string | null, typeof chapters>();
+  for (const chapter of chapters) {
+    const group = groups.get(chapter.source_id) || [];
+    group.push(chapter);
+    groups.set(chapter.source_id, group);
+  }
+  const tasks = [...groups].map(([sourceId, items]) => {
+    const id = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO jobs(id,source_id,status,message)
+      VALUES(?,?,'running','图片版本升级：等待处理')`,
+    ).run(id, sourceId);
+    return { id, items };
+  });
+  try {
+    for (const { id, items } of tasks) {
+      try {
+        log.info("images.upgrade.started", "图片版本升级开始", { jobId: id });
+        const plans = await mapConcurrent(items, 8, async (chapter) => ({
+          chapter,
+          images: await files(await safeDirectory(chapter.path)),
+        }));
+        const total = plans.reduce((sum, plan) => sum + plan.images.length, 0);
+        db.prepare("UPDATE jobs SET total=? WHERE id=?").run(total, id);
+        let done = 0;
+        let lastProgress = 0;
+        for (const { chapter, images } of plans) {
+          if (!images.length) {
+            throw Error(`章节素材为空：${chapter.path}`);
+          }
+          log.info("images.upgrade.chapter.started", "正在升级章节图片", {
+            jobId: id,
+            chapterId: chapter.id,
+            path: chapter.path,
+          });
+          const stats = await mapConcurrent(images, 16, (file) =>
+            fs.stat(file),
+          );
+          const signatures = images.map(
+            (file, i) =>
+              `${path.basename(file)}:${stats[i].size}:${stats[i].mtimeMs}`,
+          );
+          const pages = await processChapter(
+            chapter.id,
+            images,
+            signatures,
+            stats.map((stat) => stat.size),
+            () => {
+              done++;
+              if (Date.now() - lastProgress >= 100) {
+                db.prepare("UPDATE jobs SET done=?,message=? WHERE id=?").run(
+                  done,
+                  `图片版本升级：${chapter.path}`,
+                  id,
+                );
+                lastProgress = Date.now();
+              }
+            },
+          );
+          db.transaction(() => {
+            for (const page of pages) {
+              for (const file of [
+                page.original,
+                page.optimized,
+                page.thumbnail,
+              ]) {
+                db.prepare(
+                  "INSERT OR REPLACE INTO media_assets VALUES(?,?)",
+                ).run(file, chapter.manga_id);
+              }
+            }
+            db.prepare(
+              "UPDATE chapters SET pages=?,fingerprint=? WHERE id=?",
+            ).run(
+              JSON.stringify(pages),
+              hash(`${chapterProcessingVersion}:${signatures.join("|")}`),
+              chapter.id,
+            );
+            db.prepare(
+              "INSERT OR REPLACE INTO chapter_versions VALUES(?,?)",
+            ).run(chapter.id, chapterProcessingVersion);
+          })();
+          log.info("images.upgrade.chapter.completed", "章节图片升级完成", {
+            jobId: id,
+            chapterId: chapter.id,
+            pageCount: pages.length,
+          });
+        }
+        db.prepare(
+          `UPDATE jobs
+           SET status='completed', done=total, message='图片版本升级完成'
+           WHERE id=?`,
+        ).run(id);
+        log.info("images.upgrade.completed", "图片版本升级完成", { jobId: id });
+      } catch (error) {
+        const message = errorMessage(error);
+        db.prepare("UPDATE jobs SET status='failed',error=? WHERE id=?").run(
+          message,
+          id,
+        );
+        log.error("images.upgrade.failed", "图片版本升级失败，下次启动重试", {
+          jobId: id,
+          error: message,
+        });
+      }
+    }
+  } finally {
+    busy = false;
+  }
 }

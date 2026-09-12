@@ -144,6 +144,24 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS media_manga ON media_assets(manga_id);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS chapter_versions (
+    chapter_id TEXT PRIMARY KEY REFERENCES chapters(id) ON DELETE CASCADE,
+    version TEXT NOT NULL
+  );
+`);
+
+const preferenceColumns = db
+  .prepare("PRAGMA table_info(user_preferences)")
+  .all() as { name: string }[];
+if (!preferenceColumns.some((column) => column.name === "title_language")) {
+  db.exec(`
+    ALTER TABLE user_preferences
+    ADD COLUMN title_language TEXT NOT NULL DEFAULT 'ja'
+      CHECK (title_language IN ('ja', 'zh'))
+  `);
+}
+
 const mangaColumns = new Set(
   (db.prepare("PRAGMA table_info(manga)").all() as { name: string }[]).map(
     (column) => column.name,

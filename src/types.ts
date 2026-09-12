@@ -2,6 +2,7 @@ export interface Page {
   id: string;
   original: string;
   optimized: string;
+  thumbnail?: string;
   width: number;
   height: number;
   source: string;
@@ -60,6 +61,7 @@ export interface User {
   email: string;
   isAdmin: boolean;
   mustChangePassword: boolean;
+  titleLanguage: "ja" | "zh";
   librarySort: LibrarySort;
   libraryAscending: boolean;
 }

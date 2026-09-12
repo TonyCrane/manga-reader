@@ -32,7 +32,6 @@ type BrowserFilters = {
   tags: string[];
   author: string;
   untagged: boolean;
-  titleLanguage: TitleLanguage;
 };
 
 type TitleLanguage = "ja" | "zh";
@@ -126,7 +125,7 @@ export function Library() {
     rememberedFilters?.untagged || false,
   );
   const [titleLanguage, setTitleLanguage] = useState<TitleLanguage>(
-    rememberedFilters?.titleLanguage || "ja",
+    user.titleLanguage,
   );
   const [ascending, setAscending] = useState(user.libraryAscending);
   const [sort, setSort] = useState<LibrarySort>(user.librarySort);
@@ -156,7 +155,6 @@ export function Library() {
       tags: incomingTags,
       author: incomingAuthor,
       untagged: false,
-      titleLanguage,
     });
     const next = new URLSearchParams(searchParams);
     next.delete("tag");
@@ -265,7 +263,6 @@ export function Library() {
       tags: value,
       author,
       untagged: false,
-      titleLanguage,
     });
   }
 
@@ -275,7 +272,6 @@ export function Library() {
       tags: selectedTags,
       author: value,
       untagged,
-      titleLanguage,
     });
   }
 
@@ -288,19 +284,17 @@ export function Library() {
       tags,
       author,
       untagged: next,
-      titleLanguage,
     });
   }
 
   function toggleTitleLanguage() {
     const next = titleLanguage === "ja" ? "zh" : "ja";
     setTitleLanguage(next);
-    browserFilters.set(user.id, {
-      tags: selectedTags,
-      author,
-      untagged,
-      titleLanguage: next,
-    });
+    setUser({ ...user, titleLanguage: next });
+    void api(
+      "/account/preferences",
+      json("PATCH", { titleLanguage: next }),
+    ).catch((saveError) => setError((saveError as Error).message));
   }
 
   function saveSort(nextSort: LibrarySort, nextAscending: boolean) {

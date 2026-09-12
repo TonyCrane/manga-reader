@@ -15,7 +15,13 @@ import {
 } from "./auth";
 import { userRoutes } from "./users";
 import { canRead, requireAdmin, sourceList, setSourceUsers } from "./access";
-import { browse, safeDirectory, startImport, relativePath } from "./importer";
+import {
+  browse,
+  safeDirectory,
+  startImport,
+  relativePath,
+  upgradeImages,
+} from "./importer";
 import { errorMessage, log } from "./log";
 
 const app = express();
@@ -604,7 +610,13 @@ app.post("/api/sources/:id/refresh", (req, res) => {
 });
 
 app.get("/api/jobs", (_req, res) =>
-  res.json(db.prepare("SELECT * FROM jobs ORDER BY rowid DESC LIMIT 20").all()),
+  res.json(
+    db
+      .prepare(
+        "SELECT * FROM jobs WHERE status='running' OR id IN (SELECT id FROM jobs ORDER BY rowid DESC LIMIT 20) ORDER BY rowid DESC",
+      )
+      .all(),
+  ),
 );
 
 app.use(
@@ -666,6 +678,12 @@ app.use(
     });
   },
 );
+
+void upgradeImages().catch((error) => {
+  log.error("images.upgrade.failed", "图片升级启动失败", {
+    error: errorMessage(error),
+  });
+});
 
 app.listen(
   Number(process.env.PORT || 3000),

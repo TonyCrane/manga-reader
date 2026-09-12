@@ -11,6 +11,7 @@ import {
 import { api } from "../api";
 import type { Manga } from "../types";
 import { useAccount } from "../account";
+import { PagePreview } from "../components/PagePreview";
 import { MangaEditor } from "../components/MangaEditor";
 
 export function Detail() {
@@ -20,6 +21,7 @@ export function Detail() {
   const [m, setM] = useState<Manga | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
+  const [preview, setPreview] = useState(false);
   const [ascending, setAscending] = useState(true);
   const [version, setVersion] = useState(0);
   const load = () =>
@@ -110,9 +112,18 @@ export function Detail() {
       )}
       <section className="chapter-section">
         <div className="section-title">
-          <h2>
-            章节目录 <small>共 {m.chapters.length} 话</small>
-          </h2>
+          <div
+            className="detail-view-toggle"
+            role="group"
+            aria-label="目录显示方式"
+          >
+            <button aria-pressed={!preview} onClick={() => setPreview(false)}>
+              章节目录
+            </button>
+            <button aria-pressed={preview} onClick={() => setPreview(true)}>
+              页面预览
+            </button>
+          </div>
           <button
             className="chapter-order"
             aria-label={ascending ? "正序，切换为倒序" : "倒序，切换为正序"}
@@ -123,24 +134,32 @@ export function Detail() {
             {ascending ? "正序" : "倒序"}
           </button>
         </div>
-        <div className="chapter-grid">
-          {chapters.map(({ chapter, number }) => (
-            <Link
-              key={chapter.id}
-              to={`/read/${id}/${chapter.id}`}
-              className="chapter-card"
-            >
-              <span className="chapter-number">
-                {String(number).padStart(2, "0")}
-              </span>
-              <div>
-                <strong>{chapter.title}</strong>
-                <small>{chapter.pages.length} 页</small>
-              </div>
-              <ArrowRight size={18} />
-            </Link>
-          ))}
-        </div>
+        {preview ? (
+          <PagePreview
+            key={`${id}-${ascending}`}
+            mangaId={m.id}
+            chapters={chapters}
+          />
+        ) : (
+          <div className="chapter-grid">
+            {chapters.map(({ chapter, number }) => (
+              <Link
+                key={chapter.id}
+                to={`/read/${id}/${chapter.id}`}
+                className="chapter-card"
+              >
+                <span className="chapter-number">
+                  {String(number).padStart(2, "0")}
+                </span>
+                <div>
+                  <strong>{chapter.title}</strong>
+                  <small>{chapter.pages.length} 页</small>
+                </div>
+                <ArrowRight size={18} />
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
       {editing && (
         <MangaEditor
