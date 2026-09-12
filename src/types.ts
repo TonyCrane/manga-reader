@@ -51,9 +51,14 @@ export interface Job {
   error: string | null;
 }
 
+export type LibrarySort =
+  "title" | "author" | "count" | "created" | "published";
+
 export interface User {
   id: string;
   email: string;
   isAdmin: boolean;
   mustChangePassword: boolean;
+  librarySort: LibrarySort;
+  libraryAscending: boolean;
 }

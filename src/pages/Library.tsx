@@ -15,8 +15,8 @@ import { useAccount } from "../account";
 import { TagInput } from "../components/TagInput";
 import { parseTimestamp } from "../dates";
 import { SearchFilter } from "../components/SearchFilter";
-import { api } from "../api";
-import type { Manga } from "../types";
+import { api, json } from "../api";
+import type { LibrarySort, Manga } from "../types";
 import { Sheet } from "../components/Sheet";
 
 const maxBatchSize = 500;
@@ -26,6 +26,13 @@ type DeleteProgress = {
   total: number;
   title: string;
 };
+
+type BrowserFilters = {
+  tags: string[];
+  author: string;
+};
+
+const browserFilters = new Map<string, BrowserFilters>();
 
 function LibraryCard({
   manga,
@@ -93,14 +100,19 @@ function LibraryCard({
 }
 
 export function Library() {
-  const { user } = useAccount();
+  const { user, setUser } = useAccount();
+  const rememberedFilters = browserFilters.get(user.id);
   const [searchParams, setSearchParams] = useSearchParams();
   const [manga, setManga] = useState<Manga[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [ascending, setAscending] = useState(true);
-  const [sort, setSort] = useState("title");
+  const [selectedTags, setSelectedTags] = useState<string[]>(
+    rememberedFilters?.tags || [],
+  );
+  const [author, setAuthor] = useState(rememberedFilters?.author || "");
+  const [ascending, setAscending] = useState(user.libraryAscending);
+  const [sort, setSort] = useState<LibrarySort>(user.librarySort);
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -108,17 +120,29 @@ export function Library() {
   const [deleteProgress, setDeleteProgress] = useState<DeleteProgress | null>(
     null,
   );
-  const requestedTags = useMemo(
-    () => searchParams.getAll("tag"),
-    [searchParams],
-  );
-  const requestedAuthor = searchParams.get("author") || "";
   useEffect(() => {
     api<Manga[]>("/manga")
       .then(setManga)
       .catch((e) => setError(e.message))
       .finally(() => setLoaded(true));
   }, []);
+  useEffect(() => {
+    const incomingTags = [...new Set(searchParams.getAll("tag"))];
+    const incomingAuthor = searchParams.get("author") || "";
+    if (!incomingTags.length && !incomingAuthor) {
+      return;
+    }
+    setSelectedTags(incomingTags);
+    setAuthor(incomingAuthor);
+    browserFilters.set(user.id, {
+      tags: incomingTags,
+      author: incomingAuthor,
+    });
+    const next = new URLSearchParams(searchParams);
+    next.delete("tag");
+    next.delete("author");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, user.id]);
   const { authors, tags } = useMemo(
     () => ({
       authors: [...new Set(manga.map((item) => item.author).filter(Boolean))],
@@ -126,11 +150,6 @@ export function Library() {
     }),
     [manga],
   );
-  const selectedTags = useMemo(
-    () => [...new Set(requestedTags.filter((tag) => tags.includes(tag)))],
-    [requestedTags, tags],
-  );
-  const author = authors.includes(requestedAuthor) ? requestedAuthor : "";
   const filtered = useMemo(
     () =>
       manga
@@ -145,6 +164,18 @@ export function Library() {
           if (sort === "count") {
             return (
               direction * (a.chapterCount - b.chapterCount) ||
+              a.title.localeCompare(b.title)
+            );
+          }
+          if (sort === "author") {
+            if (!a.author) {
+              return b.author ? 1 : a.title.localeCompare(b.title);
+            }
+            if (!b.author) {
+              return -1;
+            }
+            return (
+              direction * a.author.localeCompare(b.author) ||
               a.title.localeCompare(b.title)
             );
           }
@@ -175,22 +206,27 @@ export function Library() {
     filtered.length > 0 && filtered.every((item) => selectedIds.has(item.id));
 
   function changeSelectedTags(value: string[]) {
-    const next = new URLSearchParams(searchParams);
-    next.delete("tag");
-    for (const tag of value) {
-      next.append("tag", tag);
-    }
-    setSearchParams(next, { replace: true });
+    setSelectedTags(value);
+    browserFilters.set(user.id, { tags: value, author });
   }
 
   function changeAuthor(value: string) {
-    const next = new URLSearchParams(searchParams);
-    if (value) {
-      next.set("author", value);
-    } else {
-      next.delete("author");
-    }
-    setSearchParams(next, { replace: true });
+    setAuthor(value);
+    browserFilters.set(user.id, { tags: selectedTags, author: value });
+  }
+
+  function saveSort(nextSort: LibrarySort, nextAscending: boolean) {
+    setSort(nextSort);
+    setAscending(nextAscending);
+    setUser({
+      ...user,
+      librarySort: nextSort,
+      libraryAscending: nextAscending,
+    });
+    void api(
+      "/account/preferences",
+      json("PATCH", { sort: nextSort, ascending: nextAscending }),
+    ).catch((saveError) => setError((saveError as Error).message));
   }
 
   function toggleSelected(id: string) {
@@ -349,9 +385,10 @@ export function Library() {
           <select
             aria-label="排序"
             value={sort}
-            onChange={(e) => setSort(e.target.value)}
+            onChange={(e) => saveSort(e.target.value as LibrarySort, ascending)}
           >
             <option value="title">名称排序</option>
+            <option value="author">作者排序</option>
             <option value="count">话数排序</option>
             <option value="created">导入时间</option>
             <option value="published">发布时间</option>
@@ -360,7 +397,7 @@ export function Library() {
             className="icon"
             aria-label={ascending ? "升序，切换为降序" : "降序，切换为升序"}
             title={ascending ? "升序" : "降序"}
-            onClick={() => setAscending((value) => !value)}
+            onClick={() => saveSort(sort, !ascending)}
           >
             {ascending ? <ArrowUp size={18} /> : <ArrowDown size={18} />}
           </button>

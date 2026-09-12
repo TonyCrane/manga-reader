@@ -30,12 +30,32 @@ export interface UserRow {
   is_admin: number;
   must_change_password: number;
 }
-export const publicUser = (user: UserRow) => ({
-  id: user.id,
-  email: user.email,
-  isAdmin: !!user.is_admin,
-  mustChangePassword: !!user.must_change_password,
-});
+type UserPreferencesRow = {
+  library_sort: string;
+  library_ascending: number;
+};
+const librarySort = z.enum([
+  "title",
+  "author",
+  "count",
+  "created",
+  "published",
+]);
+export const publicUser = (user: UserRow) => {
+  const preferences = db
+    .prepare(
+      "SELECT library_sort,library_ascending FROM user_preferences WHERE user_id=?",
+    )
+    .get(user.id) as UserPreferencesRow | undefined;
+  return {
+    id: user.id,
+    email: user.email,
+    isAdmin: !!user.is_admin,
+    mustChangePassword: !!user.must_change_password,
+    librarySort: preferences?.library_sort || "title",
+    libraryAscending: preferences ? !!preferences.library_ascending : true,
+  };
+};
 const cookie = {
   httpOnly: true,
   sameSite: "strict" as const,
@@ -179,6 +199,28 @@ accountRoutes.post("/logout", (req, res) => {
   );
   res.clearCookie("session", cookie).json({ ok: true });
 });
+accountRoutes.patch(
+  "/account/preferences",
+  requirePasswordChanged,
+  (req, res) => {
+    const input = z
+      .object({
+        sort: librarySort,
+        ascending: z.boolean(),
+      })
+      .parse(req.body);
+    db.prepare(
+      `
+      INSERT INTO user_preferences (user_id,library_sort,library_ascending)
+      VALUES (?,?,?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        library_sort = excluded.library_sort,
+        library_ascending = excluded.library_ascending
+      `,
+    ).run(res.locals.user.id, input.sort, Number(input.ascending));
+    res.json({ ok: true });
+  },
+);
 accountRoutes.post("/account/password", authLimit, async (req, res) => {
   const input = z
     .object({ currentPassword: z.string().max(128), password: passwordSchema })

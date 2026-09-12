@@ -21,6 +21,8 @@ export function MangaEditor({
   const [busy, setBusy] = useState(false);
   const [cover, setCover] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [discard, setDiscard] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [tags, setTags] = useState(m.manual_tags ? m.tags : []);
   const [tagsEdited, setTagsEdited] = useState(false);
   const [chapterId, setChapterId] = useState(m.chapters[0]?.id || "");
@@ -36,10 +38,21 @@ export function MangaEditor({
       setBusy(false);
     }
   }
+  function requestClose() {
+    if (busy) {
+      return;
+    }
+    if (dirty) {
+      setDiscard(true);
+      return;
+    }
+    onClose();
+  }
   return (
     <>
-      <Sheet title="编辑漫画信息" onClose={onClose}>
+      <Sheet title="编辑漫画信息" onClose={requestClose}>
         <form
+          onChange={() => setDirty(true)}
           onSubmit={(e) => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
@@ -110,6 +123,7 @@ export function MangaEditor({
             onChange={(v) => {
               setTags(v);
               setTagsEdited(true);
+              setDirty(true);
             }}
             placeholder="添加标签"
           />
@@ -245,6 +259,20 @@ export function MangaEditor({
               }
             >
               确认删除
+            </button>
+          </div>
+        </Sheet>
+      )}
+      {discard && (
+        <Sheet title="放弃未保存的修改？" onClose={() => setDiscard(false)}>
+          <p>你对漫画信息或章节标题的修改还没有保存。</p>
+          <p className="hint">放弃后，这些修改将无法恢复。</p>
+          <div className="confirm-actions">
+            <button className="soft-button" onClick={() => setDiscard(false)}>
+              继续编辑
+            </button>
+            <button className="danger-button" onClick={onClose}>
+              放弃修改
             </button>
           </div>
         </Sheet>

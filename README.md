@@ -66,7 +66,7 @@ manga/
 
 一次运行一个导入任务，目录扫描和文件检查并发执行，图片通过 Sharp 原生线程池处理（按可用 CPU 数量并发 1–4 张），进度写入合并，章节数据通过事务发布。设置页面按图片总数显示完成百分比，并根据任务已运行时间和已处理图片数估算剩余时间；开始处理图片前显示扫描状态。完成结果在刷新或重新进入设置页面后隐藏，可在各目录设置中查看最近 20 次导入记录。失败或中断后可以重新刷新；已完成且未变化的章节直接跳过。Docker 日志使用单行 JSON，记录导入任务、当前漫画、实际处理章节、完成统计和失败原因，不逐张图片输出。
 
-目录标题作为漫画和章节的初始名称。二层扫描使用第一层目录名作为作者；刷新时会为作者为空的漫画补入目录作者，但不会覆盖非空作者。漫画详情中可以编辑漫画标题、作者、发布时间、导入时间、标签与各话标题，刷新保留这些修改。未手动填写的字段显示为占位提示；清空手动标题后恢复扫描名称。标签支持回车添加和逐项移除。封面默认为第一话第一页，在「编辑信息 → 更换封面」中上传图片或切换章节选择页面，只加载当前章节的图片。书架和详情页按需生成并复用最大 `480×640` 的 WebP 封面缩略图，阅读图片不受影响。
+目录标题作为漫画和章节的初始名称。二层扫描使用第一层目录名作为作者；刷新时会为作者为空的漫画补入目录作者，但不会覆盖非空作者。漫画详情中可以编辑漫画标题、作者、发布时间、导入时间、标签与各话标题，刷新保留这些修改；表单有未保存内容时，关闭编辑弹窗会先确认是否放弃。未手动填写的字段显示为占位提示；清空手动标题后恢复扫描名称。标签支持回车添加和逐项移除。封面默认为第一话第一页，在「编辑信息 → 更换封面」中上传图片或切换章节选择页面，只加载当前章节的图片。书架和详情页按需生成并复用最大 `480×640` 的 WebP 封面缩略图，阅读图片不受影响。
 
 扫描不会主动删除已导入的漫画或章节。移除导入源时可以只移除源并保留漫画，也可以同时删除仅由该源导入的漫画；关联其他导入源的漫画会保留。管理员还可从「编辑信息 → 删除漫画」单独删除，或在书架批量选择后逐部删除多部漫画；批量弹窗显示当前漫画及完成进度，中途失败时可以继续删除剩余项。删除漫画会清除平台记录、处理图片、缩略图和上传封面，所有操作均保留原文件。Docker 日志会逐部记录正在删除的漫画及删除来源。若目录仍在其他导入源中，后续刷新会重新导入。目录重命名视为新的漫画或章节。旧的处理文件保留，以免影响正在阅读的页面及手动选择的封面。
 
@@ -82,7 +82,7 @@ manga/
 
 ## 阅读
 
-书架展示封面、标题和话数，支持搜索作者、标签后筛选以及漫画名称搜索。可按名称、话数、导入时间或发布时间排序，排序方向通过独立按钮切换，多个标签按“与”筛选，未填写的发布时间排在最后。书架和设置导航固定在底部居中。点击漫画打开章节目录，可切换正序或倒序并从任意话开始阅读；详情页的作者和标签可直接返回书架并应用对应筛选。
+书架展示封面、标题和话数，支持搜索作者、标签后筛选以及漫画名称搜索。可按名称、作者、话数、导入时间或发布时间排序，排序方向通过独立按钮切换；排序方式随账号保存，标签与作者筛选只保留到页面刷新前。多个标签按“与”筛选，未填写的作者和发布时间始终排在最后。书架和设置导航固定在底部居中。点击漫画打开章节目录，可切换正序或倒序并从任意话开始阅读；详情页的作者和标签可直接返回书架并应用对应筛选。
 
 ### 日漫模式
 
@@ -117,37 +117,38 @@ Service Worker 只缓存公开应用框架和静态资源，不离线缓存漫�
 
 除健康检查、初始化状态、首次初始化和登录以外，所有接口需要会话 Cookie。JSON 请求使用 `Content-Type: application/json`。
 
-| 方法与路径                      | 用途                                                                                 |
-| ------------------------------- | ------------------------------------------------------------------------------------ |
-| `GET /api/setup`                | 是否需要创建首个管理员                                                               |
-| `POST /api/setup`               | `{ "email": "邮箱", "password": "密码" }`                                            |
-| `POST /api/account/password`    | `{ "currentPassword": "当前密码", "password": "新密码" }`                            |
-| `GET /api/users`                | 管理员查看用户                                                                       |
-| `POST /api/users`               | `{ "email": "邮箱", "password": "初始密码", "isAdmin": false }`                      |
-| `PATCH /api/users/:id`          | `{ "isAdmin": true }`                                                                |
-| `POST /api/users/:id/password`  | 管理员重置密码，`{ "password": "初始密码" }`                                         |
-| `GET /api/health`               | 容器健康检查                                                                         |
-| `POST /api/login`               | `{ "email": "邮箱", "password": "密码" }`                                            |
-| `GET /api/session`              | 检查当前会话                                                                         |
-| `POST /api/logout`              | 注销会话                                                                             |
-| `GET /api/manga`                | 漫画列表                                                                             |
-| `DELETE /api/manga`             | 批量删除，`{ "ids": ["漫画 ID"] }`，一次最多 500 部                                  |
-| `GET /api/manga/:id`            | 漫画详情、章节和页面                                                                 |
-| `PATCH /api/manga/:id`          | `{ "title": "标题", "author": "作者", "published": "2026-01-01", "tags": ["标签"] }` |
-| `DELETE /api/manga/:id`         | 删除平台中的漫画记录与派生图片，保留素材                                             |
-| `PATCH /api/chapters/:id`       | `{ "title": "章节标题" }`                                                            |
-| `GET /api/manga/:id/cover`      | 当前封面；`?size=small` 返回最大 `480×640` 的缩略图                                  |
-| `PUT /api/manga/:id/cover`      | `{ "pageId": "页面 ID" }`，从本漫画选择封面                                          |
-| `POST /api/manga/:id/cover`     | multipart/form-data，字段 `cover`，最大 20 MiB                                       |
-| `GET /api/directories?path=.`   | 浏览素材根目录内的文件夹                                                             |
-| `GET /api/sources`              | 持久导入源                                                                           |
-| `POST /api/sources`             | `{ "path": ".", "mode": "manual 或 one 或 two", "userIds": ["用户 ID"] }`            |
-| `PATCH /api/sources/:id`        | 修改路径和扫描方式，字段与添加导入源相同                                             |
-| `GET /api/sources/:id/jobs`     | 指定目录最近 20 次导入记录                                                           |
-| `DELETE /api/sources/:id`       | 移除导入源；传 `{ "deleteManga": true }` 时删除该源独有漫画                          |
-| `POST /api/sources/:id/refresh` | `{ "mode": "all" 或 "new" }`，默认 all，返回任务 ID                                  |
-| `GET /api/jobs`                 | 最近 20 个任务及处理进度                                                             |
-| `GET /media/*`                  | 受会话保护的处理图片                                                                 |
+| 方法与路径                       | 用途                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------ |
+| `GET /api/setup`                 | 是否需要创建首个管理员                                                               |
+| `POST /api/setup`                | `{ "email": "邮箱", "password": "密码" }`                                            |
+| `POST /api/account/password`     | `{ "currentPassword": "当前密码", "password": "新密码" }`                            |
+| `GET /api/users`                 | 管理员查看用户                                                                       |
+| `POST /api/users`                | `{ "email": "邮箱", "password": "初始密码", "isAdmin": false }`                      |
+| `PATCH /api/users/:id`           | `{ "isAdmin": true }`                                                                |
+| `POST /api/users/:id/password`   | 管理员重置密码，`{ "password": "初始密码" }`                                         |
+| `GET /api/health`                | 容器健康检查                                                                         |
+| `POST /api/login`                | `{ "email": "邮箱", "password": "密码" }`                                            |
+| `GET /api/session`               | 检查当前会话                                                                         |
+| `POST /api/logout`               | 注销会话                                                                             |
+| `PATCH /api/account/preferences` | 保存账号的书架排序条件和方向，`{ "sort": "author", "ascending": true }`              |
+| `GET /api/manga`                 | 漫画列表                                                                             |
+| `DELETE /api/manga`              | 批量删除，`{ "ids": ["漫画 ID"] }`，一次最多 500 部                                  |
+| `GET /api/manga/:id`             | 漫画详情、章节和页面                                                                 |
+| `PATCH /api/manga/:id`           | `{ "title": "标题", "author": "作者", "published": "2026-01-01", "tags": ["标签"] }` |
+| `DELETE /api/manga/:id`          | 删除平台中的漫画记录与派生图片，保留素材                                             |
+| `PATCH /api/chapters/:id`        | `{ "title": "章节标题" }`                                                            |
+| `GET /api/manga/:id/cover`       | 当前封面；`?size=small` 返回最大 `480×640` 的缩略图                                  |
+| `PUT /api/manga/:id/cover`       | `{ "pageId": "页面 ID" }`，从本漫画选择封面                                          |
+| `POST /api/manga/:id/cover`      | multipart/form-data，字段 `cover`，最大 20 MiB                                       |
+| `GET /api/directories?path=.`    | 浏览素材根目录内的文件夹                                                             |
+| `GET /api/sources`               | 持久导入源                                                                           |
+| `POST /api/sources`              | `{ "path": ".", "mode": "manual 或 one 或 two", "userIds": ["用户 ID"] }`            |
+| `PATCH /api/sources/:id`         | 修改路径和扫描方式，字段与添加导入源相同                                             |
+| `GET /api/sources/:id/jobs`      | 指定目录最近 20 次导入记录                                                           |
+| `DELETE /api/sources/:id`        | 移除导入源；传 `{ "deleteManga": true }` 时删除该源独有漫画                          |
+| `POST /api/sources/:id/refresh`  | `{ "mode": "all" 或 "new" }`，默认 all，返回任务 ID                                  |
+| `GET /api/jobs`                  | 最近 20 个任务及处理进度                                                             |
+| `GET /media/*`                   | 受会话保护的处理图片                                                                 |
 
 漫画信息 PATCH 的 `created` 字段接受 ISO 日期时间，用于修改导入时间。漫画信息 PATCH 支持只提交变化字段，未提交字段保持原值。漫画及章节的 `title` 设为 `null` 或空字符串时恢复扫描名称。
 

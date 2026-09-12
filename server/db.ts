@@ -109,6 +109,14 @@ db.exec(`
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    library_sort TEXT NOT NULL DEFAULT 'title'
+      CHECK (library_sort IN ('title', 'author', 'count', 'created', 'published')),
+    library_ascending INTEGER NOT NULL DEFAULT 1
+      CHECK (library_ascending IN (0, 1))
+  );
+
   CREATE TABLE IF NOT EXISTS source_users (
     source_id TEXT REFERENCES sources(id) ON DELETE CASCADE,
     user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
