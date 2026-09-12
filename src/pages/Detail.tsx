@@ -55,6 +55,7 @@ export function Detail() {
         </div>
         <div className="detail-info">
           <h1>{m.title}</h1>
+          {m.title_zh && <p className="secondary-title">{m.title_zh}</p>}
           <p className="muted">
             {m.author ? (
               <Link

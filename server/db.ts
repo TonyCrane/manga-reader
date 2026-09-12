@@ -62,6 +62,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     path TEXT UNIQUE NOT NULL,
     title TEXT NOT NULL,
+    title_zh TEXT NOT NULL DEFAULT '',
     scanned_title TEXT,
     title_override TEXT,
     author TEXT DEFAULT '',
@@ -142,6 +143,15 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS media_manga ON media_assets(manga_id);
 `);
+
+const mangaColumns = new Set(
+  (db.prepare("PRAGMA table_info(manga)").all() as { name: string }[]).map(
+    (column) => column.name,
+  ),
+);
+if (!mangaColumns.has("title_zh")) {
+  db.exec("ALTER TABLE manga ADD COLUMN title_zh TEXT NOT NULL DEFAULT ''");
+}
 
 const interruptedJobs = db
   .prepare(

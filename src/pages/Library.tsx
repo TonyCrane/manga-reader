@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   BookOpen,
   Check,
+  Languages,
   ListChecks,
   Search,
   Trash2,
@@ -30,17 +31,27 @@ type DeleteProgress = {
 type BrowserFilters = {
   tags: string[];
   author: string;
+  untagged: boolean;
+  titleLanguage: TitleLanguage;
 };
+
+type TitleLanguage = "ja" | "zh";
 
 const browserFilters = new Map<string, BrowserFilters>();
 
+function libraryTitle(manga: Manga, language: TitleLanguage) {
+  return language === "zh" && manga.title_zh ? manga.title_zh : manga.title;
+}
+
 function LibraryCard({
   manga,
+  title,
   selecting,
   selected,
   onSelect,
 }: {
   manga: Manga;
+  title: string;
   selecting: boolean;
   selected: boolean;
   onSelect: () => void;
@@ -50,7 +61,7 @@ function LibraryCard({
       <div className="cover">
         <img
           src={`/api/manga/${manga.id}/cover?size=small`}
-          alt={`${manga.title} 封面`}
+          alt={`${title} 封面`}
           loading="lazy"
           decoding="async"
         />
@@ -65,7 +76,7 @@ function LibraryCard({
           </span>
         )}
       </div>
-      <h3>{manga.title}</h3>
+      <h3>{title}</h3>
       <p>
         {manga.chapterCount} 话<span> · </span>
         {manga.author || "作者未填写"}
@@ -85,7 +96,7 @@ function LibraryCard({
         type="button"
         className={`manga-card manga-select${selected ? " selected" : ""}`}
         aria-pressed={selected}
-        aria-label={`${selected ? "取消选择" : "选择"}${manga.title}`}
+        aria-label={`${selected ? "取消选择" : "选择"}${title}`}
         onClick={onSelect}
       >
         {content}
@@ -111,6 +122,12 @@ export function Library() {
     rememberedFilters?.tags || [],
   );
   const [author, setAuthor] = useState(rememberedFilters?.author || "");
+  const [untagged, setUntagged] = useState(
+    rememberedFilters?.untagged || false,
+  );
+  const [titleLanguage, setTitleLanguage] = useState<TitleLanguage>(
+    rememberedFilters?.titleLanguage || "ja",
+  );
   const [ascending, setAscending] = useState(user.libraryAscending);
   const [sort, setSort] = useState<LibrarySort>(user.librarySort);
   const [selecting, setSelecting] = useState(false);
@@ -134,15 +151,18 @@ export function Library() {
     }
     setSelectedTags(incomingTags);
     setAuthor(incomingAuthor);
+    setUntagged(false);
     browserFilters.set(user.id, {
       tags: incomingTags,
       author: incomingAuthor,
+      untagged: false,
+      titleLanguage,
     });
     const next = new URLSearchParams(searchParams);
     next.delete("tag");
     next.delete("author");
     setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams, user.id]);
+  }, [searchParams, setSearchParams, titleLanguage, user.id]);
   const { authors, tags } = useMemo(
     () => ({
       authors: [...new Set(manga.map((item) => item.author).filter(Boolean))],
@@ -155,8 +175,15 @@ export function Library() {
       manga
         .filter(
           (m) =>
-            (!search || m.title.toLowerCase().includes(search.toLowerCase())) &&
+            (!search ||
+              m.title
+                .toLocaleLowerCase()
+                .includes(search.toLocaleLowerCase()) ||
+              m.title_zh
+                .toLocaleLowerCase()
+                .includes(search.toLocaleLowerCase())) &&
             (!author || m.author === author) &&
+            (!untagged || m.tags.length === 0) &&
             selectedTags.every((tag) => m.tags.includes(tag)),
         )
         .sort((a, b) => {
@@ -164,26 +191,36 @@ export function Library() {
           if (sort === "count") {
             return (
               direction * (a.chapterCount - b.chapterCount) ||
-              a.title.localeCompare(b.title)
+              libraryTitle(a, titleLanguage).localeCompare(
+                libraryTitle(b, titleLanguage),
+              )
             );
           }
           if (sort === "author") {
             if (!a.author) {
-              return b.author ? 1 : a.title.localeCompare(b.title);
+              return b.author
+                ? 1
+                : libraryTitle(a, titleLanguage).localeCompare(
+                    libraryTitle(b, titleLanguage),
+                  );
             }
             if (!b.author) {
               return -1;
             }
             return (
               direction * a.author.localeCompare(b.author) ||
-              a.title.localeCompare(b.title)
+              libraryTitle(a, titleLanguage).localeCompare(
+                libraryTitle(b, titleLanguage),
+              )
             );
           }
           if (sort === "created") {
             return (
               direction *
                 (parseTimestamp(a.created) - parseTimestamp(b.created)) ||
-              a.title.localeCompare(b.title)
+              libraryTitle(a, titleLanguage).localeCompare(
+                libraryTitle(b, titleLanguage),
+              )
             );
           }
           if (sort === "published") {
@@ -195,24 +232,75 @@ export function Library() {
             }
             return (
               direction * a.published.localeCompare(b.published) ||
-              a.title.localeCompare(b.title)
+              libraryTitle(a, titleLanguage).localeCompare(
+                libraryTitle(b, titleLanguage),
+              )
             );
           }
-          return direction * a.title.localeCompare(b.title);
+          return (
+            direction *
+            libraryTitle(a, titleLanguage).localeCompare(
+              libraryTitle(b, titleLanguage),
+            )
+          );
         }),
-    [manga, search, author, selectedTags, sort, ascending],
+    [
+      manga,
+      search,
+      author,
+      untagged,
+      selectedTags,
+      sort,
+      ascending,
+      titleLanguage,
+    ],
   );
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((item) => selectedIds.has(item.id));
 
   function changeSelectedTags(value: string[]) {
     setSelectedTags(value);
-    browserFilters.set(user.id, { tags: value, author });
+    setUntagged(false);
+    browserFilters.set(user.id, {
+      tags: value,
+      author,
+      untagged: false,
+      titleLanguage,
+    });
   }
 
   function changeAuthor(value: string) {
     setAuthor(value);
-    browserFilters.set(user.id, { tags: selectedTags, author: value });
+    browserFilters.set(user.id, {
+      tags: selectedTags,
+      author: value,
+      untagged,
+      titleLanguage,
+    });
+  }
+
+  function toggleUntagged() {
+    const next = !untagged;
+    const tags = next ? [] : selectedTags;
+    setUntagged(next);
+    setSelectedTags(tags);
+    browserFilters.set(user.id, {
+      tags,
+      author,
+      untagged: next,
+      titleLanguage,
+    });
+  }
+
+  function toggleTitleLanguage() {
+    const next = titleLanguage === "ja" ? "zh" : "ja";
+    setTitleLanguage(next);
+    browserFilters.set(user.id, {
+      tags: selectedTags,
+      author,
+      untagged,
+      titleLanguage: next,
+    });
   }
 
   function saveSort(nextSort: LibrarySort, nextAscending: boolean) {
@@ -275,7 +363,9 @@ export function Library() {
 
   async function deleteSelected() {
     const ids = [...selectedIds];
-    const titles = new Map(manga.map((item) => [item.id, item.title]));
+    const titles = new Map(
+      manga.map((item) => [item.id, libraryTitle(item, titleLanguage)]),
+    );
     let completed = 0;
     setDeleting(true);
     setError("");
@@ -369,6 +459,14 @@ export function Library() {
             value={selectedTags}
             onChange={changeSelectedTags}
           />
+          <button
+            type="button"
+            className={`untagged-filter${untagged ? " selected" : ""}`}
+            aria-pressed={untagged}
+            onClick={toggleUntagged}
+          >
+            无标签
+          </button>
           <SearchFilter
             label="作者"
             options={authors}
@@ -382,6 +480,16 @@ export function Library() {
           全部漫画 <small>{filtered.length} 部作品</small>
         </span>
         <div className="sort-controls">
+          <button
+            type="button"
+            className="title-language"
+            title={`切换为${titleLanguage === "ja" ? "中文" : "日语"}标题`}
+            aria-label={`当前显示${titleLanguage === "ja" ? "日语" : "中文"}标题，切换语言`}
+            onClick={toggleTitleLanguage}
+          >
+            <Languages size={16} />
+            <span>{titleLanguage === "ja" ? "日语" : "中文"}</span>
+          </button>
           <select
             aria-label="排序"
             value={sort}
@@ -444,6 +552,7 @@ export function Library() {
             <LibraryCard
               key={item.id}
               manga={item}
+              title={libraryTitle(item, titleLanguage)}
               selecting={selecting}
               selected={selectedIds.has(item.id)}
               onSelect={() => toggleSelected(item.id)}

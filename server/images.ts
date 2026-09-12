@@ -9,7 +9,10 @@ sharp.concurrency(1);
 export const hash = (value: string) =>
   crypto.createHash("sha256").update(value).digest("hex").slice(0, 24);
 
-export const chapterProcessingVersion = "v3";
+export const chapterProcessingVersion = "v4";
+
+const doublePageAspectRatio = 1.2;
+const ratioTolerance = 0.02;
 
 type PagePart = {
   left: number;
@@ -19,7 +22,8 @@ type PagePart = {
 };
 
 function splitPage(width: number, height: number): PagePart[] {
-  const count = width > height * 2 ? 4 : width > height ? 2 : 1;
+  const count =
+    width > height * 2 ? 4 : width / height >= doublePageAspectRatio ? 2 : 1;
   if (count === 1) {
     return [{ left: 0, width, height, part: "single" }];
   }
@@ -40,6 +44,38 @@ function splitPage(width: number, height: number): PagePart[] {
           : `quarter-${outputIndex + 1}`,
     };
   });
+}
+
+function median(values: number[]) {
+  const middle = Math.floor(values.length / 2);
+  return values.length % 2
+    ? values[middle]
+    : (values[middle - 1] + values[middle]) / 2;
+}
+
+function commonPageRatio(parts: PagePart[]) {
+  const ratios = parts
+    .map((part) => part.width / part.height)
+    .sort((a, b) => a - b);
+  const overallMedian = median(ratios);
+  let bestCluster: number[] = [];
+  let bestDistance = Infinity;
+  for (const candidate of ratios) {
+    const cluster = ratios.filter(
+      (ratio) => Math.abs(ratio - candidate) / candidate <= ratioTolerance,
+    );
+    const distance = Math.abs(median(cluster) - overallMedian);
+    if (
+      cluster.length > bestCluster.length ||
+      (cluster.length === bestCluster.length && distance < bestDistance)
+    ) {
+      bestCluster = cluster;
+      bestDistance = distance;
+    }
+  }
+  // Use the tallest ratio in the dominant cluster. Normal size fluctuations
+  // then need only vertical padding; unusually tall pages remain untouched.
+  return Math.min(...bestCluster);
 }
 
 export async function outputsExist(files: string[]) {
@@ -76,12 +112,7 @@ export async function processChapter(
     },
   );
   const parts = metadata.map(({ width, height }) => splitPage(width, height));
-  const ratio = parts
-    .flat()
-    .reduce(
-      (ratio, part) => Math.min(ratio, part.width / part.height),
-      Infinity,
-    );
+  const ratio = commonPageRatio(parts.flat());
   const pages = await mapConcurrent(
     files,
     imageConcurrency,
@@ -89,7 +120,10 @@ export async function processChapter(
       const result = [];
       let reused = true;
       for (const part of parts[index]) {
-        const canvasHeight = Math.ceil(part.width / ratio);
+        const canvasHeight = Math.max(
+          part.height,
+          Math.ceil(part.width / ratio),
+        );
         // A chapter edit only invalidates this page when its source or output geometry changes.
         const signature = hash(
           `v2:${signatures[index]}:${part.left}:${part.width}:${canvasHeight}`,

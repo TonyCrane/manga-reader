@@ -20,6 +20,7 @@ export interface Chapter {
 export interface Manga {
   id: string;
   title: string;
+  title_zh: string;
   title_override: string | null;
   scanned_title: string;
   created: string;

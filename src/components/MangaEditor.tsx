@@ -1,6 +1,6 @@
 import { localDateTime } from "../dates";
-import { useState } from "react";
-import { ImagePlus, Upload, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { ImagePlus, RotateCcw, Upload, Trash2 } from "lucide-react";
 import { Sheet } from "./Sheet";
 import { TagInput } from "./TagInput";
 import { api, json, media } from "../api";
@@ -26,6 +26,8 @@ export function MangaEditor({
   const [tags, setTags] = useState(m.manual_tags ? m.tags : []);
   const [tagsEdited, setTagsEdited] = useState(false);
   const [chapterId, setChapterId] = useState(m.chapters[0]?.id || "");
+  const titleInput = useRef<HTMLInputElement>(null);
+  const chapterInputs = useRef(new Map<string, HTMLInputElement>());
   const chapter = m.chapters.find((c) => c.id === chapterId);
   async function perform(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -48,6 +50,17 @@ export function MangaEditor({
     }
     onClose();
   }
+  function fillDefault(
+    input: HTMLInputElement | undefined | null,
+    value: string,
+  ) {
+    if (!input) {
+      return;
+    }
+    input.value = value;
+    input.focus();
+    setDirty(true);
+  }
   return (
     <>
       <Sheet title="编辑漫画信息" onClose={requestClose}>
@@ -61,6 +74,7 @@ export function MangaEditor({
                 `/manga/${m.id}`,
                 json("PATCH", {
                   title: String(f.get("title")).trim() || null,
+                  titleZh: String(f.get("titleZh")).trim(),
                   author: f.get("author"),
                   published: f.get("published"),
                   ...(f.get("created") !== localDateTime(m.created)
@@ -85,11 +99,34 @@ export function MangaEditor({
           }}
         >
           <label>
-            漫画标题
+            <span className="field-heading">
+              日语标题
+              <button
+                type="button"
+                className="fill-default"
+                disabled={busy}
+                onClick={() =>
+                  fillDefault(titleInput.current, m.scanned_title || m.title)
+                }
+              >
+                <RotateCcw size={13} />
+                填入默认值
+              </button>
+            </span>
             <input
+              ref={titleInput}
               name="title"
               defaultValue={m.title_override || ""}
               placeholder={m.scanned_title || m.title}
+              maxLength={200}
+            />
+          </label>
+          <label>
+            中文标题
+            <input
+              name="titleZh"
+              defaultValue={m.title_zh}
+              placeholder="未填写"
               maxLength={200}
             />
           </label>
@@ -141,8 +178,31 @@ export function MangaEditor({
           <h3>章节标题</h3>
           {m.chapters.map((c) => (
             <label key={c.id}>
-              {c.position + 1} 话
+              <span className="field-heading">
+                {c.position + 1} 话
+                <button
+                  type="button"
+                  className="fill-default"
+                  disabled={busy}
+                  onClick={() =>
+                    fillDefault(
+                      chapterInputs.current.get(c.id),
+                      c.scanned_title || c.title,
+                    )
+                  }
+                >
+                  <RotateCcw size={13} />
+                  填入默认值
+                </button>
+              </span>
               <input
+                ref={(input) => {
+                  if (input) {
+                    chapterInputs.current.set(c.id, input);
+                  } else {
+                    chapterInputs.current.delete(c.id);
+                  }
+                }}
                 name={c.id}
                 defaultValue={c.title_override || ""}
                 placeholder={c.scanned_title || c.title}

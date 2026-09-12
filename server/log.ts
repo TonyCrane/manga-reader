@@ -8,14 +8,18 @@ function write(
   message: string,
   fields: LogFields = {},
 ) {
-  const record = {
-    time: new Date().toISOString(),
-    level,
-    event,
-    message,
-    ...fields,
-  };
-  const line = JSON.stringify(record);
+  const contextFields: LogFields = { event, ...fields };
+  const context = Object.entries(contextFields)
+    .flatMap(([key, value]) =>
+      value === undefined
+        ? []
+        : [
+            `${key}=${typeof value === "string" ? JSON.stringify(value) : String(value)}`,
+          ],
+    )
+    .join("  ");
+  const readableMessage = message.replace(/\s+/g, " ").trim();
+  const line = `${new Date().toISOString()} [${level.toUpperCase()}] ${readableMessage}  ${context}`;
   if (level === "error") {
     console.error(line);
     return;

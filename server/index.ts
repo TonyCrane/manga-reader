@@ -213,6 +213,7 @@ app.get("/api/manga/:id", (req, res) => {
 
 const metadata = z.object({
   title: z.string().trim().max(200).nullable().optional(),
+  titleZh: z.string().trim().max(200).optional(),
   author: z.string().trim().max(200).optional(),
   published: z.string().max(100).optional(),
   created: z.string().datetime({ offset: true }).optional(),
@@ -233,6 +234,7 @@ app.patch("/api/manga/:id", (req, res) => {
     SET
       title = ?,
       title_override = ?,
+      title_zh = ?,
       author = ?,
       published = ?,
       tags = ?,
@@ -243,6 +245,7 @@ app.patch("/api/manga/:id", (req, res) => {
   ).run(
     override || old.scanned_title || path.basename(old.path),
     override,
+    input.titleZh ?? old.title_zh,
     input.author ?? old.author,
     input.published ?? old.published,
     JSON.stringify(
