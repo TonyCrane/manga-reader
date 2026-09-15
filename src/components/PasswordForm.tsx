@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, json } from "../api";
+import { api, json } from "../lib/api";
 import type { User } from "../types";
 
 export function PasswordForm({

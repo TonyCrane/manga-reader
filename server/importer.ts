@@ -317,12 +317,13 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         db.prepare(
           `
         INSERT INTO chapters (
-          id, manga_id, path, title, position, pages, fingerprint
+          id, manga_id, path, title, position, pages, page_count, fingerprint
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           position = excluded.position,
           pages = excluded.pages,
+          page_count = excluded.page_count,
           fingerprint = excluded.fingerprint
         `,
         ).run(
@@ -332,6 +333,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
           path.basename(chapter.path),
           position++,
           JSON.stringify(pages),
+          pages.length,
           fingerprint,
         );
         db.prepare("INSERT OR REPLACE INTO chapter_versions VALUES (?, ?)").run(
@@ -495,8 +497,11 @@ async function reprocessManga(
           );
         }
       }
-      db.prepare("UPDATE chapters SET pages=?,fingerprint=? WHERE id=?").run(
+      db.prepare(
+        "UPDATE chapters SET pages=?,page_count=?,fingerprint=? WHERE id=?",
+      ).run(
         JSON.stringify(pages),
+        pages.length,
         chapterFingerprint(signatures, splitPages),
         chapter.id,
       );
@@ -622,9 +627,10 @@ export async function upgradeImages() {
               }
             }
             db.prepare(
-              "UPDATE chapters SET pages=?,fingerprint=? WHERE id=?",
+              "UPDATE chapters SET pages=?,page_count=?,fingerprint=? WHERE id=?",
             ).run(
               JSON.stringify(pages),
+              pages.length,
               chapterFingerprint(signatures, Boolean(chapter.split_pages)),
               chapter.id,
             );

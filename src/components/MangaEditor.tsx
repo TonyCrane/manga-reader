@@ -3,8 +3,8 @@ import {
   loadTranslationSettings,
   translateWithDeepSeek,
   type TranslationSettings,
-} from "../translation";
-import { localDateTime } from "../dates";
+} from "../lib/translation";
+import { localDateTime } from "../lib/dates";
 import { useEffect, useRef, useState } from "react";
 import {
   ChevronRight,
@@ -16,7 +16,7 @@ import {
 import { Sheet } from "./Sheet";
 import { TagInput } from "./TagInput";
 import { ChapterTitleEditor } from "./ChapterTitleEditor";
-import { api, json, media } from "../api";
+import { api, json, media } from "../lib/api";
 import type { Manga } from "../types";
 
 export function MangaEditor({

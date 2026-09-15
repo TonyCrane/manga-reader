@@ -12,11 +12,11 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useAccount } from "../account";
+import { useAccount } from "../context/AccountContext";
 import { TagInput } from "../components/TagInput";
-import { parseTimestamp } from "../dates";
+import { parseTimestamp } from "../lib/dates";
 import { SearchFilter } from "../components/SearchFilter";
-import { api, json } from "../api";
+import { api, json } from "../lib/api";
 import type { LibrarySort, Manga } from "../types";
 import { Sheet } from "../components/Sheet";
 
@@ -47,12 +47,14 @@ function LibraryCard({
   title,
   selecting,
   selected,
+  priority,
   onSelect,
 }: {
   manga: Manga;
   title: string;
   selecting: boolean;
   selected: boolean;
+  priority: boolean;
   onSelect: () => void;
 }) {
   const content = (
@@ -61,8 +63,9 @@ function LibraryCard({
         <img
           src={`/api/manga/${manga.id}/cover?size=small`}
           alt={`${title} 封面`}
-          loading="lazy"
+          loading={priority ? "eager" : "lazy"}
           decoding="async"
+          fetchPriority={priority ? "high" : "auto"}
         />
         {selecting ? (
           <span className="cover-select" aria-hidden="true">
@@ -552,13 +555,14 @@ export function Library() {
         <div className="loading">正在整理书架…</div>
       ) : filtered.length ? (
         <div className="manga-grid">
-          {filtered.map((item) => (
+          {filtered.map((item, index) => (
             <LibraryCard
               key={item.id}
               manga={item}
               title={libraryTitle(item, titleLanguage)}
               selecting={selecting}
               selected={selectedIds.has(item.id)}
+              priority={index < 6}
               onSelect={() => toggleSelected(item.id)}
             />
           ))}

@@ -1,23 +1,46 @@
 import type { RequestHandler } from "express";
 import { db } from "./db";
 
+const readableManga = db.prepare(`
+  SELECT 1
+  FROM manga m
+  WHERE m.id = ? AND (
+    EXISTS (
+      SELECT 1
+      FROM manga_sources ms
+      JOIN source_users su ON su.source_id = ms.source_id
+      WHERE ms.manga_id = m.id AND su.user_id = ?
+    ) OR EXISTS (
+      SELECT 1
+      FROM manga_users mu
+      WHERE mu.manga_id = m.id AND mu.user_id = ?
+    )
+  )
+`);
+
+const readableMedia = db.prepare(`
+  SELECT 1
+  FROM media_assets ma
+  WHERE ma.file = ? AND (
+    EXISTS (
+      SELECT 1
+      FROM manga_sources ms
+      JOIN source_users su ON su.source_id = ms.source_id
+      WHERE ms.manga_id = ma.manga_id AND su.user_id = ?
+    ) OR EXISTS (
+      SELECT 1
+      FROM manga_users mu
+      WHERE mu.manga_id = ma.manga_id AND mu.user_id = ?
+    )
+  )
+`);
+
 export function canRead(userId: string, mangaId: string): boolean {
-  return !!db
-    .prepare(
-      `
-    SELECT 1 FROM manga WHERE id = ? AND (
-      EXISTS (
-        SELECT 1 FROM manga_sources ms
-        JOIN source_users su ON su.source_id = ms.source_id
-        WHERE ms.manga_id = manga.id AND su.user_id = ?
-      ) OR EXISTS (
-        SELECT 1 FROM manga_users mu
-        WHERE mu.manga_id = manga.id AND mu.user_id = ?
-      )
-    )
-  `,
-    )
-    .get(mangaId, userId, userId);
+  return !!readableManga.get(mangaId, userId, userId);
+}
+
+export function canReadMedia(userId: string, file: string): boolean {
+  return !!readableMedia.get(file, userId, userId);
 }
 
 export const requireAdmin: RequestHandler = (_req, res, next) => {

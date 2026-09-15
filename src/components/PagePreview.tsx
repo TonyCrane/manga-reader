@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { media } from "../api";
+import { media } from "../lib/api";
 import type { Chapter } from "../types";
 
 const pageSize = 100;

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Plus, KeyRound } from "lucide-react";
 import { Sheet } from "./Sheet";
-import { api, json } from "../api";
-import { useAccount } from "../account";
+import { useAccount } from "../context/AccountContext";
+import { api, json } from "../lib/api";
 import type { User } from "../types";
 
 export function UserManagement({

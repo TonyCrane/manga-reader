@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { RotateCcw } from "lucide-react";
-import { api, json } from "../api";
+import { api, json } from "../lib/api";
 import type { Chapter } from "../types";
 import { Sheet } from "./Sheet";
 

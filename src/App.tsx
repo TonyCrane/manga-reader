@@ -7,8 +7,8 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { BookOpen, Settings } from "lucide-react";
-import { api, json } from "./api";
-import { AccountContext } from "./account";
+import { AccountContext } from "./context/AccountContext";
+import { api, json } from "./lib/api";
 import type { User } from "./types";
 import { Library } from "./pages/Library";
 import { SettingsPage } from "./pages/Settings";

@@ -6,7 +6,7 @@ import {
   defaultTranslationPrompt,
   loadTranslationSettings,
   saveTranslationSettings,
-} from "../translation";
+} from "../lib/translation";
 
 export function TranslationSettings({ userId }: { userId: string }) {
   const [settings, setSettings] = useState(emptyTranslationSettings);

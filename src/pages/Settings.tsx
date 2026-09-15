@@ -10,7 +10,7 @@ import {
   LockKeyhole,
   Info,
 } from "lucide-react";
-import { useAccount } from "../account";
+import { useAccount } from "../context/AccountContext";
 import { TranslationSettings } from "../components/TranslationSettings";
 import { Sheet } from "../components/Sheet";
 import { About } from "../components/About";

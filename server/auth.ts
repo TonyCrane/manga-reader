@@ -31,10 +31,11 @@ export interface UserRow {
   must_change_password: number;
 }
 type UserPreferencesRow = {
-  library_sort: string;
-  library_ascending: number;
-  title_language: "ja" | "zh";
+  library_sort: string | null;
+  library_ascending: number | null;
+  title_language: "ja" | "zh" | null;
 };
+type UserWithPreferences = UserRow & Partial<UserPreferencesRow>;
 const librarySort = z.enum([
   "title",
   "author",
@@ -43,12 +44,15 @@ const librarySort = z.enum([
   "created",
   "published",
 ]);
-export const publicUser = (user: UserRow) => {
-  const preferences = db
-    .prepare(
-      "SELECT library_sort,library_ascending,title_language FROM user_preferences WHERE user_id=?",
-    )
-    .get(user.id) as UserPreferencesRow | undefined;
+export const publicUser = (user: UserWithPreferences) => {
+  const joinedPreferences = Object.hasOwn(user, "library_sort");
+  const preferences = joinedPreferences
+    ? user
+    : (db
+        .prepare(
+          "SELECT library_sort,library_ascending,title_language FROM user_preferences WHERE user_id=?",
+        )
+        .get(user.id) as UserPreferencesRow | undefined);
   return {
     id: user.id,
     email: user.email,
@@ -56,7 +60,10 @@ export const publicUser = (user: UserRow) => {
     mustChangePassword: !!user.must_change_password,
     titleLanguage: preferences?.title_language || "ja",
     librarySort: preferences?.library_sort || "title",
-    libraryAscending: preferences ? !!preferences.library_ascending : true,
+    libraryAscending:
+      preferences?.library_ascending == null
+        ? true
+        : !!preferences.library_ascending,
   };
 };
 const cookie = {
@@ -67,6 +74,17 @@ const cookie = {
 };
 const tokenHash = (token: string) =>
   createHash("sha256").update(token).digest("hex");
+const sessionUser = db.prepare(`
+  SELECT
+    u.*,
+    p.library_sort,
+    p.library_ascending,
+    p.title_language
+  FROM users u
+  JOIN sessions s ON s.user_id = u.id
+  LEFT JOIN user_preferences p ON p.user_id = u.id
+  WHERE s.token = ? AND s.expires > ?
+`);
 
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -164,16 +182,8 @@ export const authenticate: RequestHandler = (req, res, next) => {
   const token = req.cookies.session;
   const user =
     typeof token === "string"
-      ? (db
-          .prepare(
-            `
-            SELECT u.*
-            FROM users u
-            JOIN sessions s ON s.user_id = u.id
-            WHERE s.token = ? AND s.expires > ?
-            `,
-          )
-          .get(tokenHash(token), Date.now()) as UserRow | undefined)
+      ? (sessionUser.get(tokenHash(token), Date.now()) as
+          UserWithPreferences | undefined)
       : undefined;
   if (!user) {
     res.status(401).json({ error: "请先登录" });

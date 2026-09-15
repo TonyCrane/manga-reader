@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { User } from "./types";
+import type { User } from "../types";
 
 export const AccountContext = createContext<{
   user: User;

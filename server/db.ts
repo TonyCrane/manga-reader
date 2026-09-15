@@ -83,6 +83,7 @@ db.exec(`
     title_override TEXT,
     position INTEGER NOT NULL,
     pages TEXT NOT NULL,
+    page_count INTEGER NOT NULL DEFAULT 0 CHECK (page_count >= 0),
     fingerprint TEXT NOT NULL
   );
 
@@ -155,7 +156,12 @@ db.exec(`
     manga_id TEXT REFERENCES manga(id) ON DELETE CASCADE
   );
 
+  CREATE INDEX IF NOT EXISTS chapters_manga_position
+    ON chapters(manga_id, position);
+  CREATE INDEX IF NOT EXISTS manga_sources_source
+    ON manga_sources(source_id, manga_id);
   CREATE INDEX IF NOT EXISTS media_manga ON media_assets(manga_id);
+  CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 `);
 
 db.exec(`
@@ -222,6 +228,20 @@ if (!mangaColumns.has("split_pages")) {
   );
 }
 
+const chapterColumns = new Set(
+  (db.prepare("PRAGMA table_info(chapters)").all() as { name: string }[]).map(
+    (column) => column.name,
+  ),
+);
+if (!chapterColumns.has("page_count")) {
+  db.transaction(() => {
+    db.exec(
+      "ALTER TABLE chapters ADD COLUMN page_count INTEGER NOT NULL DEFAULT 0",
+    );
+    db.exec("UPDATE chapters SET page_count = json_array_length(pages)");
+  })();
+}
+
 const interruptedJobs = db
   .prepare(
     `
@@ -239,40 +259,115 @@ if (interruptedJobs.changes) {
   });
 }
 
-export function mangaList() {
-  return db
-    .prepare(
-      `
-      SELECT
-        m.*,
-        (
-          SELECT COUNT(*)
-          FROM chapters c
-          WHERE c.manga_id = m.id
-        ) AS chapterCount,
-        (
-          SELECT COALESCE(SUM(json_array_length(c.pages)), 0)
-          FROM chapters c
-          WHERE c.manga_id = m.id
-        ) AS pageCount
-      FROM manga m
-      ORDER BY m.title COLLATE BINARY
-      `,
+const mangaSummary = `
+  SELECT
+    m.*,
+    COUNT(c.id) AS chapterCount,
+    COALESCE(SUM(c.page_count), 0) AS pageCount
+  FROM manga m
+  LEFT JOIN chapters c ON c.manga_id = m.id
+`;
+
+type MangaRow = {
+  id: string;
+  path: string;
+  title: string;
+  title_zh: string;
+  scanned_title: string | null;
+  title_override: string | null;
+  author: string;
+  published: string;
+  tags: string;
+  manual_tags: number;
+  split_pages: number;
+  cover: string | null;
+  created: string;
+  chapterCount: number;
+  pageCount: number;
+};
+
+function parseManga(manga: MangaRow) {
+  return { ...manga, tags: JSON.parse(manga.tags) as string[] };
+}
+
+const mangaListStatement = db.prepare(`
+  ${mangaSummary}
+  WHERE
+    EXISTS (
+      SELECT 1
+      FROM manga_sources ms
+      JOIN source_users su ON su.source_id = ms.source_id
+      WHERE ms.manga_id = m.id AND su.user_id = ?
     )
-    .all()
-    .map((m: any) => ({ ...m, tags: JSON.parse(m.tags) }));
+    OR EXISTS (
+      SELECT 1
+      FROM manga_users mu
+      WHERE mu.manga_id = m.id AND mu.user_id = ?
+    )
+  GROUP BY m.id
+  ORDER BY m.title COLLATE BINARY
+`);
+
+const mangaDetailStatement = db.prepare(`
+  ${mangaSummary}
+  WHERE m.id = ?
+  GROUP BY m.id
+`);
+
+const mangaChaptersStatement = db.prepare(`
+  SELECT
+    id,
+    manga_id,
+    path,
+    title,
+    scanned_title,
+    title_override,
+    position,
+    pages,
+    fingerprint
+  FROM chapters
+  WHERE manga_id = ?
+  ORDER BY position
+`);
+
+const coverSourceStatement = db.prepare(`
+  SELECT
+    m.id,
+    COALESCE(
+      NULLIF(m.cover, ''),
+      (
+        SELECT json_extract(c.pages, '$[0].optimized')
+        FROM chapters c
+        WHERE c.manga_id = m.id
+        ORDER BY c.position
+        LIMIT 1
+      )
+    ) AS source
+  FROM manga m
+  WHERE m.id = ?
+`);
+
+export function mangaList(userId: string) {
+  return mangaListStatement
+    .all(userId, userId)
+    .map((manga) => parseManga(manga as MangaRow));
 }
 
 export function detail(id: string) {
-  const m = mangaList().find((m: any) => m.id === id);
+  const row = mangaDetailStatement.get(id) as MangaRow | undefined;
+  const m = row ? parseManga(row) : null;
   if (!m) {
     return null;
   }
   return {
     ...m,
-    chapters: db
-      .prepare("SELECT * FROM chapters WHERE manga_id=? ORDER BY position")
+    chapters: mangaChaptersStatement
       .all(id)
       .map((c: any) => ({ ...c, pages: JSON.parse(c.pages) })),
   };
+}
+
+export function coverSource(id: string) {
+  return coverSourceStatement.get(id) as
+    { id: string; source: string | null } | undefined;
 }

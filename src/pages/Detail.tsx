@@ -8,9 +8,9 @@ import {
   BookOpen,
   Pencil,
 } from "lucide-react";
-import { api } from "../api";
+import { api } from "../lib/api";
 import type { Manga } from "../types";
-import { useAccount } from "../account";
+import { useAccount } from "../context/AccountContext";
 import { PagePreview } from "../components/PagePreview";
 import { MangaEditor } from "../components/MangaEditor";
 
@@ -24,12 +24,19 @@ export function Detail() {
   const [preview, setPreview] = useState(false);
   const [ascending, setAscending] = useState(true);
   const [version, setVersion] = useState(0);
-  const load = () =>
-    api<Manga>(`/manga/${id}`)
+  const load = (signal?: AbortSignal) =>
+    api<Manga>(`/manga/${id}`, { signal })
       .then(setM)
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        if (!signal?.aborted) {
+          setError(e.message);
+        }
+      });
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    setError("");
+    void load(controller.signal);
+    return () => controller.abort();
   }, [id]);
   if (!m) {
     return <div className="loading">{error || "正在打开漫画…"}</div>;

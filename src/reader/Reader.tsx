@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -8,7 +8,7 @@ import {
   ChevronRight,
   Columns2,
 } from "lucide-react";
-import { api, media } from "../api";
+import { api, media } from "../lib/api";
 import type { Manga, Page } from "../types";
 import { Sheet } from "../components/Sheet";
 import { spreads, spreadIndex } from "./pagination";
@@ -80,17 +80,48 @@ export function Reader() {
   const scroll = useRef<HTMLDivElement>(null);
   const lastChapter = useRef(chapterId);
   const scrollTarget = useRef<string | null>(null);
+  const preloadedImages = useRef(new Map<string, HTMLImageElement>());
+  const loadedFrame = useRef({ key: "", pages: new Set<string>() });
+  const [readyFrame, setReadyFrame] = useState("");
   const ci = m?.chapters.findIndex((c) => c.id === chapterId) ?? -1;
   const chapter = m?.chapters[ci];
   const landscapePages = id && landscapePagesByManga[id] === 1 ? 1 : 2;
   const double = landscape && prefs.mode === "manga" && landscapePages === 2;
-  const pairs = spreads(chapter?.pages.length || 0, shifted);
+  const pairs = useMemo(
+    () => spreads(chapter?.pages.length || 0, shifted),
+    [chapter?.pages.length, shifted],
+  );
   const pairIndex = spreadIndex(page, shifted);
   const visible = double ? pairs[pairIndex] || [] : [page];
+  const visiblePageIds = visible.flatMap((index) =>
+    index === null || !chapter?.pages[index] ? [] : [chapter.pages[index].id],
+  );
+  const frameKey = chapter
+    ? `${chapter.id}:${prefs.quality}:${visiblePageIds.join(",")}`
+    : "";
+  function currentImageLoaded(pageId: string) {
+    if (!frameKey || !visiblePageIds.includes(pageId)) {
+      return;
+    }
+    if (loadedFrame.current.key !== frameKey) {
+      loadedFrame.current = { key: frameKey, pages: new Set() };
+    }
+    loadedFrame.current.pages.add(pageId);
+    if (loadedFrame.current.pages.size === visiblePageIds.length) {
+      setReadyFrame(frameKey);
+    }
+  }
   useEffect(() => {
-    api<Manga>(`/manga/${id}`)
+    const controller = new AbortController();
+    setError("");
+    api<Manga>(`/manga/${id}`, { signal: controller.signal })
       .then(setM)
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        if (!controller.signal.aborted) {
+          setError(e.message);
+        }
+      });
+    return () => controller.abort();
   }, [id]);
   useEffect(() => {
     if (chapter && searchParams.has("page")) {
@@ -227,6 +258,70 @@ export function Reader() {
     reset();
   }, [page, chapterId, landscape, prefs.mode, landscapePages, shifted]);
   useEffect(() => {
+    preloadedImages.current.clear();
+  }, [id, prefs.mode, prefs.quality]);
+  useEffect(() => {
+    if (prefs.mode !== "manga" || !m || !chapter || readyFrame !== frameKey) {
+      return;
+    }
+    const currentPageIds = new Set(visiblePageIds);
+    const ahead = chapter.pages
+      .slice(page + 1, page + 10)
+      .filter((item) => !currentPageIds.has(item.id))
+      .slice(0, 8);
+    if (ahead.length < 8) {
+      ahead.push(
+        ...(m.chapters[ci + 1]?.pages.slice(0, 8 - ahead.length) || []),
+      );
+    }
+    const behind = chapter.pages.slice(Math.max(0, page - 2), page).reverse();
+    if (behind.length < 2) {
+      behind.push(
+        ...(m.chapters[ci - 1]?.pages.slice(behind.length - 2).reverse() || []),
+      );
+    }
+    const currentUrls = new Set(
+      visible.flatMap((index) =>
+        index === null || !chapter.pages[index]
+          ? []
+          : [media(chapter.pages[index][prefs.quality])],
+      ),
+    );
+    const urls = [
+      ...new Set(
+        [...ahead, ...behind]
+          .map((item) => media(item[prefs.quality]))
+          .filter((url) => !currentUrls.has(url)),
+      ),
+    ];
+    const wanted = new Set(urls);
+    for (const url of preloadedImages.current.keys()) {
+      if (!wanted.has(url)) {
+        preloadedImages.current.delete(url);
+      }
+    }
+    const decodeCount = prefs.quality === "optimized" ? 4 : 2;
+    urls.forEach((url, index) => {
+      let image = preloadedImages.current.get(url);
+      if (!image) {
+        image = new Image();
+        image.decoding = "async";
+        image.fetchPriority = "auto";
+        image.src = url;
+        preloadedImages.current.set(url, image);
+      }
+      if (index < decodeCount) {
+        void image.decode().catch(() => {});
+      }
+    });
+  }, [m, chapter, ci, page, prefs.mode, prefs.quality, readyFrame, frameKey]);
+  useEffect(
+    () => () => {
+      preloadedImages.current.clear();
+    },
+    [],
+  );
+  useEffect(() => {
     if (lastChapter.current !== chapterId) {
       lastChapter.current = chapterId;
       if (prefs.mode === "scroll" && scrollTarget.current) {
@@ -262,20 +357,6 @@ export function Reader() {
     return () => window.removeEventListener("keydown", key);
   }, [turn, sheet]);
   useEffect(() => {
-    if (!m || !chapter) {
-      return;
-    }
-    const nearby = chapter.pages.slice(Math.max(0, page - 2), page + 7);
-    if (page + 7 >= chapter.pages.length) {
-      nearby.push(...(m.chapters[ci + 1]?.pages.slice(0, 3) || []));
-    }
-    for (const p of nearby) {
-      const img = new Image();
-      img.src = media(p[prefs.quality]);
-      void img.decode().catch(() => {});
-    }
-  }, [m, chapter, page, prefs.quality, ci]);
-  useEffect(() => {
     if (prefs.mode !== "scroll" || !scroll.current || !m) {
       return;
     }
@@ -285,10 +366,23 @@ export function Reader() {
       frame = requestAnimationFrame(() => {
         const root = scroll.current!;
         const target = root.scrollTop + root.clientHeight * 0.35;
-        const elements = [...root.querySelectorAll<HTMLElement>("[data-page]")];
-        const el = elements.find(
-          (e) => e.offsetTop <= target && e.offsetTop + e.offsetHeight > target,
-        );
+        const elements = root.querySelectorAll<HTMLElement>("[data-page]");
+        let low = 0;
+        let high = elements.length - 1;
+        let el: HTMLElement | null = null;
+        while (low <= high) {
+          const middle = Math.floor((low + high) / 2);
+          const candidate = elements[middle];
+          if (candidate.offsetTop <= target) {
+            el = candidate;
+            low = middle + 1;
+          } else {
+            high = middle - 1;
+          }
+        }
+        if (el && el.offsetTop + el.offsetHeight <= target) {
+          el = null;
+        }
         if (el) {
           setPage(Number(el.dataset.page));
           if (el.dataset.chapter !== chapterId) {
@@ -327,7 +421,12 @@ export function Reader() {
     );
   }
   if (!m) {
-    return <div className="reader-error">正在载入漫画…</div>;
+    return (
+      <div className="reader-error">
+        <span className="reader-spinner" aria-hidden="true" />
+        正在载入漫画…
+      </div>
+    );
   }
   if (!chapter) {
     return (
@@ -387,6 +486,10 @@ export function Reader() {
                         page={frame.chapter.pages[index]}
                         quality={prefs.quality}
                         number={index + 1}
+                        priority={direction === 0}
+                        onLoad={
+                          direction === 0 ? currentImageLoaded : undefined
+                        }
                       />
                     ),
                   )}
@@ -646,23 +749,38 @@ function ReaderImage({
   page,
   quality,
   number,
+  priority,
+  onLoad,
 }: {
   page: Page;
   quality: "original" | "optimized";
   number: number;
+  priority: boolean;
+  onLoad?: (pageId: string) => void;
 }) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [retry, setRetry] = useState(0);
   if (!page) {
     return null;
   }
   return (
     <div className="reader-image">
+      {!loaded && !failed && (
+        <span
+          className="reader-loading-indicator"
+          role="status"
+          aria-label={`正在加载第 ${number} 页`}
+        >
+          <span className="reader-spinner" aria-hidden="true" />
+        </span>
+      )}
       {failed ? (
         <button
           className="retry"
           onClick={() => {
             setFailed(false);
+            setLoaded(false);
             setRetry((r) => r + 1);
           }}
         >
@@ -674,8 +792,15 @@ function ReaderImage({
           alt={`第 ${number} 页`}
           draggable={false}
           decoding="async"
-          fetchPriority="high"
-          onError={() => setFailed(true)}
+          fetchPriority={priority ? "high" : "low"}
+          onLoad={() => {
+            setLoaded(true);
+            onLoad?.(page.id);
+          }}
+          onError={() => {
+            setLoaded(false);
+            setFailed(true);
+          }}
         />
       )}
     </div>

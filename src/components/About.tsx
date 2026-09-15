@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Tag } from "lucide-react";
-import { api } from "../api";
+import { api } from "../lib/api";
 import type { VersionInfo } from "../types";
 
 export function About() {

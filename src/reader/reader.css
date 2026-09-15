@@ -56,6 +56,28 @@ body.reading.reader-menu-open {
   object-fit: contain;
   pointer-events: none;
 }
+.reader-loading-indicator {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.reader-spinner {
+  display: block;
+  width: 30px;
+  height: 30px;
+  border: 3px solid #ffffff2b;
+  border-top-color: #d8deeb;
+  border-radius: 50%;
+  animation: reader-spin 900ms linear infinite;
+}
+@keyframes reader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .blank-page {
   background: #fff;
 }
@@ -394,6 +416,9 @@ body.reading.reader-menu-open {
   pointer-events: auto;
 }
 @media (prefers-reduced-motion: reduce) {
+  .reader-spinner {
+    animation: none;
+  }
   .reader-top,
   .reader-controls {
     transform: none;

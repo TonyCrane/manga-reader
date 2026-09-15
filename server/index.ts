@@ -6,7 +6,15 @@ import path from "node:path";
 import fs from "node:fs";
 import sharp from "sharp";
 import { z } from "zod";
-import { dataDir, db, mangaDir, processedDir, detail, mangaList } from "./db";
+import {
+  coverSource,
+  dataDir,
+  db,
+  detail,
+  mangaDir,
+  mangaList,
+  processedDir,
+} from "./db";
 import {
   publicAuth,
   authenticate,
@@ -14,7 +22,13 @@ import {
   requirePasswordChanged,
 } from "./auth";
 import { userRoutes } from "./users";
-import { canRead, requireAdmin, sourceList, setSourceUsers } from "./access";
+import {
+  canRead,
+  canReadMedia,
+  requireAdmin,
+  sourceList,
+  setSourceUsers,
+} from "./access";
 import {
   browse,
   isImporterBusy,
@@ -79,10 +93,6 @@ function removeMangaFiles(manga: MangaForDeletion) {
   if (manga.cover && /^cover-[a-f0-9-]+\.webp$/.test(manga.cover)) {
     fs.rmSync(path.join(processedDir, manga.cover), { force: true });
   }
-}
-
-function coverFile(manga: NonNullable<ReturnType<typeof detail>>) {
-  return manga.cover || manga.chapters[0]?.pages[0]?.optimized;
 }
 
 async function smallCover(mangaId: string, source: string) {
@@ -169,9 +179,7 @@ app.use("/api/chapters/:id", requireAdmin, (req, res, next) => {
   next();
 });
 
-app.get("/api/manga", (_req, res) =>
-  res.json(mangaList().filter((m) => canRead(res.locals.user.id, m.id))),
-);
+app.get("/api/manga", (_req, res) => res.json(mangaList(res.locals.user.id)));
 
 app.delete("/api/manga", requireAdmin, (req, res) => {
   if (db.prepare("SELECT 1 FROM jobs WHERE status='running'").get()) {
@@ -390,30 +398,27 @@ app.post("/api/manga/:id/cover", upload.single("cover"), async (req, res) => {
 });
 
 app.get("/api/manga/:id/cover", async (req, res) => {
-  const m = detail(String(req.params.id));
-  if (!m) {
+  const manga = coverSource(String(req.params.id));
+  if (!manga?.source) {
     return res.status(404).end();
   }
-  const source = coverFile(m);
-  if (!source) {
-    return res.status(404).end();
-  }
+  const source = manga.source;
   let file = source;
   if (req.query.size === "small") {
-    file = await smallCover(m.id, source);
-    const current = detail(m.id);
-    if (!current || !canRead(res.locals.user.id, m.id)) {
+    file = await smallCover(manga.id, source);
+    const current = coverSource(manga.id);
+    if (!current || !canRead(res.locals.user.id, manga.id)) {
       if (!current) {
         fs.rmSync(path.join(processedDir, file), { force: true });
       }
       return res.status(404).end();
     }
-    if (coverFile(current) !== source) {
+    if (current.source !== source) {
       return res.status(409).json({ error: "封面已更新，请重试" });
     }
     db.prepare("INSERT OR REPLACE INTO media_assets VALUES(?,?)").run(
       file,
-      m.id,
+      manga.id,
     );
   }
   res.sendFile(path.join(processedDir, file), { dotfiles: "allow" });
@@ -643,10 +648,7 @@ app.use(
   "/media",
   (req, res, next) => {
     const file = decodeURIComponent(req.path).replace(/^\//, "");
-    const asset = db
-      .prepare("SELECT manga_id FROM media_assets WHERE file=?")
-      .get(file) as { manga_id: string } | undefined;
-    if (!asset || !canRead(res.locals.user.id, asset.manga_id)) {
+    if (!canReadMedia(res.locals.user.id, file)) {
       res.status(404).json({ error: "图片不存在或无权访问" });
       return;
     }
