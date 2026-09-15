@@ -1,9 +1,21 @@
-import { loadTranslationSettings, translateWithDeepSeek } from "../translation";
+import {
+  hasCompleteTranslationSettings,
+  loadTranslationSettings,
+  translateWithDeepSeek,
+  type TranslationSettings,
+} from "../translation";
 import { localDateTime } from "../dates";
 import { useEffect, useRef, useState } from "react";
-import { ImagePlus, RotateCcw, Upload, Trash2 } from "lucide-react";
+import {
+  ChevronRight,
+  ImagePlus,
+  RotateCcw,
+  Upload,
+  Trash2,
+} from "lucide-react";
 import { Sheet } from "./Sheet";
 import { TagInput } from "./TagInput";
+import { ChapterTitleEditor } from "./ChapterTitleEditor";
 import { api, json, media } from "../api";
 import type { Manga } from "../types";
 
@@ -21,6 +33,7 @@ export function MangaEditor({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [cover, setCover] = useState(false);
+  const [chapterTitles, setChapterTitles] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [discard, setDiscard] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -30,11 +43,26 @@ export function MangaEditor({
   const titleInput = useRef<HTMLInputElement>(null);
   const titleZhInput = useRef<HTMLInputElement>(null);
   const translationRequest = useRef<AbortController | null>(null);
+  const [translationSettings, setTranslationSettings] =
+    useState<TranslationSettings | null>(null);
   const [translating, setTranslating] = useState(false);
   const [translationMessage, setTranslationMessage] = useState("");
-  useEffect(() => () => translationRequest.current?.abort(), []);
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadTranslationSettings(controller.signal)
+      .then((settings) => {
+        if (hasCompleteTranslationSettings(settings)) {
+          setTranslationSettings(settings);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      controller.abort();
+      translationRequest.current?.abort();
+    };
+  }, []);
   async function translateTitle() {
-    if (translating || busy) {
+    if (translating || busy || !translationSettings) {
       return;
     }
     const source =
@@ -48,7 +76,7 @@ export function MangaEditor({
     try {
       const translated = await translateWithDeepSeek(
         source,
-        await loadTranslationSettings(controller.signal),
+        translationSettings,
         controller.signal,
       );
       if (controller.signal.aborted) {
@@ -81,7 +109,6 @@ export function MangaEditor({
       }
     }
   }
-  const chapterInputs = useRef(new Map<string, HTMLInputElement>());
   const chapter = m.chapters.find((c) => c.id === chapterId);
   async function perform(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -143,12 +170,6 @@ export function MangaEditor({
                   splitPages: f.has("splitPages"),
                 }),
               );
-              for (const c of m.chapters) {
-                const title = String(f.get(c.id)).trim() || null;
-                if (title !== c.title_override) {
-                  await api(`/chapters/${c.id}`, json("PATCH", { title }));
-                }
-              }
               await onSaved();
               onClose();
             });
@@ -180,15 +201,17 @@ export function MangaEditor({
           <label>
             <span className="field-heading">
               中文标题
-              <button
-                type="button"
-                className="fill-default"
-                aria-label="使用 DeepSeek 翻译日语标题"
-                disabled={busy || translating}
-                onClick={() => void translateTitle()}
-              >
-                {translating ? "翻译中…" : "DeepSeek 翻译"}
-              </button>
+              {translationSettings && (
+                <button
+                  type="button"
+                  className="fill-default"
+                  aria-label="使用 DeepSeek 翻译日语标题"
+                  disabled={busy || translating}
+                  onClick={() => void translateTitle()}
+                >
+                  {translating ? "翻译中…" : "DeepSeek 翻译"}
+                </button>
+              )}
             </span>
             <input
               ref={titleZhInput}
@@ -263,41 +286,18 @@ export function MangaEditor({
             <ImagePlus size={17} />
             更换封面
           </button>
-          <h3>章节标题</h3>
-          {m.chapters.map((c) => (
-            <label key={c.id}>
-              <span className="field-heading">
-                {c.position + 1} 话
-                <button
-                  type="button"
-                  className="fill-default"
-                  disabled={busy}
-                  onClick={() =>
-                    fillDefault(
-                      chapterInputs.current.get(c.id),
-                      c.scanned_title || c.title,
-                    )
-                  }
-                >
-                  <RotateCcw size={13} />
-                  填入默认值
-                </button>
-              </span>
-              <input
-                ref={(input) => {
-                  if (input) {
-                    chapterInputs.current.set(c.id, input);
-                  } else {
-                    chapterInputs.current.delete(c.id);
-                  }
-                }}
-                name={c.id}
-                defaultValue={c.title_override || ""}
-                placeholder={c.scanned_title || c.title}
-                maxLength={200}
-              />
-            </label>
-          ))}
+          <button
+            type="button"
+            className="soft-button full chapter-title-entry"
+            disabled={busy}
+            onClick={() => setChapterTitles(true)}
+          >
+            <span>
+              <strong>编辑章节标题</strong>
+              <small>共 {m.chapters.length} 话</small>
+            </span>
+            <ChevronRight size={18} />
+          </button>
           {error && (
             <p className="error" role="alert">
               {error}
@@ -317,6 +317,13 @@ export function MangaEditor({
           </button>
         </form>
       </Sheet>
+      {chapterTitles && (
+        <ChapterTitleEditor
+          chapters={m.chapters}
+          onClose={() => setChapterTitles(false)}
+          onSaved={onSaved}
+        />
+      )}
       {cover && (
         <Sheet title="更换封面" onClose={() => setCover(false)}>
           <label className="upload-button">
@@ -413,7 +420,7 @@ export function MangaEditor({
       )}
       {discard && (
         <Sheet title="放弃未保存的修改？" onClose={() => setDiscard(false)}>
-          <p>你对漫画信息或章节标题的修改还没有保存。</p>
+          <p>你对漫画信息的修改还没有保存。</p>
           <p className="hint">放弃后，这些修改将无法恢复。</p>
           <div className="confirm-actions">
             <button className="soft-button" onClick={() => setDiscard(false)}>

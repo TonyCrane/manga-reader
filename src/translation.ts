@@ -23,6 +23,11 @@ export const emptyTranslationSettings = (): TranslationSettings => ({
   prompt: defaultTranslationPrompt,
 });
 
+export const hasCompleteTranslationSettings = (settings: TranslationSettings) =>
+  Boolean(
+    settings.apiKey.trim() && settings.model.trim() && settings.prompt.trim(),
+  );
+
 export async function loadTranslationSettings(
   signal?: AbortSignal,
 ): Promise<TranslationSettings> {
@@ -45,8 +50,8 @@ export async function translateWithDeepSeek(
   settings: TranslationSettings,
   signal: AbortSignal,
 ): Promise<string> {
-  if (!settings.apiKey.trim()) {
-    throw new Error("请先在设置中配置 DeepSeek API Key");
+  if (!hasCompleteTranslationSettings(settings)) {
+    throw new Error("请先填写完整的 DeepSeek 翻译设置");
   }
   const response = await fetch(deepSeekEndpoint, {
     method: "POST",

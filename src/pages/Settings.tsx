@@ -75,7 +75,7 @@ export function SettingsPage({
               aria-haspopup="dialog"
             >
               <Languages size={20} aria-hidden="true" />
-              <span>DeepSeek 设置</span>
+              <span>DeepSeek 翻译设置</span>
               <ChevronRight size={18} aria-hidden="true" />
             </button>
           )}
@@ -130,7 +130,7 @@ export function SettingsPage({
         )}
       </div>
       {dialog === "translation" && user.isAdmin && (
-        <Sheet title="DeepSeek 设置" onClose={() => setDialog(null)}>
+        <Sheet title="DeepSeek 翻译设置" onClose={() => setDialog(null)}>
           <TranslationSettings key={user.id} userId={user.id} />
         </Sheet>
       )}

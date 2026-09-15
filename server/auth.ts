@@ -39,6 +39,7 @@ const librarySort = z.enum([
   "title",
   "author",
   "count",
+  "pages",
   "created",
   "published",
 ]);

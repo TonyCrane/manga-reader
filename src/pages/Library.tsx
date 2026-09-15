@@ -195,6 +195,14 @@ export function Library() {
               )
             );
           }
+          if (sort === "pages") {
+            return (
+              direction * (a.pageCount - b.pageCount) ||
+              libraryTitle(a, titleLanguage).localeCompare(
+                libraryTitle(b, titleLanguage),
+              )
+            );
+          }
           if (sort === "author") {
             if (!a.author) {
               return b.author
@@ -493,6 +501,7 @@ export function Library() {
             <option value="title">名称排序</option>
             <option value="author">作者排序</option>
             <option value="count">话数排序</option>
+            <option value="pages">页数排序</option>
             <option value="created">导入时间</option>
             <option value="published">发布时间</option>
           </select>

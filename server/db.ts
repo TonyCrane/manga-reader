@@ -121,9 +121,15 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS user_preferences (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     library_sort TEXT NOT NULL DEFAULT 'title'
-      CHECK (library_sort IN ('title', 'author', 'count', 'created', 'published')),
+      CHECK (
+        library_sort IN (
+          'title', 'author', 'count', 'pages', 'created', 'published'
+        )
+      ),
     library_ascending INTEGER NOT NULL DEFAULT 1
-      CHECK (library_ascending IN (0, 1))
+      CHECK (library_ascending IN (0, 1)),
+    title_language TEXT NOT NULL DEFAULT 'ja'
+      CHECK (title_language IN ('ja', 'zh'))
   );
 
   CREATE TABLE IF NOT EXISTS source_users (
@@ -168,6 +174,38 @@ if (!preferenceColumns.some((column) => column.name === "title_language")) {
     ADD COLUMN title_language TEXT NOT NULL DEFAULT 'ja'
       CHECK (title_language IN ('ja', 'zh'))
   `);
+}
+
+const preferenceTable = db
+  .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
+  .get("user_preferences") as { sql: string };
+if (!preferenceTable.sql.includes("'pages'")) {
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE user_preferences_next (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        library_sort TEXT NOT NULL DEFAULT 'title'
+          CHECK (
+            library_sort IN (
+              'title', 'author', 'count', 'pages', 'created', 'published'
+            )
+          ),
+        library_ascending INTEGER NOT NULL DEFAULT 1
+          CHECK (library_ascending IN (0, 1)),
+        title_language TEXT NOT NULL DEFAULT 'ja'
+          CHECK (title_language IN ('ja', 'zh'))
+      );
+
+      INSERT INTO user_preferences_next (
+        user_id, library_sort, library_ascending, title_language
+      )
+      SELECT user_id, library_sort, library_ascending, title_language
+      FROM user_preferences;
+
+      DROP TABLE user_preferences;
+      ALTER TABLE user_preferences_next RENAME TO user_preferences;
+    `);
+  })();
 }
 
 const mangaColumns = new Set(

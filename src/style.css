@@ -1369,6 +1369,49 @@ form h3 {
 .cover-edit {
   margin-top: 22px;
 }
+.chapter-title-entry {
+  justify-content: space-between;
+  margin-top: 12px;
+  text-align: left;
+}
+.chapter-title-entry > span {
+  display: grid;
+  gap: 4px;
+}
+.chapter-title-entry small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.chapter-title-summary {
+  margin: 4px 0 18px;
+}
+.chapter-title-fields {
+  display: grid;
+  gap: 18px;
+}
+.chapter-title-fields label {
+  margin: 0;
+}
+.chapter-title-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0;
+}
+.chapter-title-pagination label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  white-space: nowrap;
+}
+.chapter-title-pagination select {
+  width: auto;
+  height: 42px;
+  margin: 0;
+}
 .cover-picker {
   margin-top: 20px;
 }

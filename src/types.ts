@@ -56,7 +56,7 @@ export interface Job {
 }
 
 export type LibrarySort =
-  "title" | "author" | "count" | "created" | "published";
+  "title" | "author" | "count" | "pages" | "created" | "published";
 
 export interface User {
   id: string;
