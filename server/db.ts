@@ -69,6 +69,7 @@ db.exec(`
     published TEXT DEFAULT '',
     tags TEXT DEFAULT '[]',
     manual_tags INTEGER DEFAULT 0,
+    split_pages INTEGER NOT NULL DEFAULT 1,
     cover TEXT,
     created TEXT DEFAULT CURRENT_TIMESTAMP
   );
@@ -177,6 +178,11 @@ const mangaColumns = new Set(
 if (!mangaColumns.has("title_zh")) {
   db.exec("ALTER TABLE manga ADD COLUMN title_zh TEXT NOT NULL DEFAULT ''");
 }
+if (!mangaColumns.has("split_pages")) {
+  db.exec(
+    "ALTER TABLE manga ADD COLUMN split_pages INTEGER NOT NULL DEFAULT 1",
+  );
+}
 
 const interruptedJobs = db
   .prepare(
@@ -205,7 +211,12 @@ export function mangaList() {
           SELECT COUNT(*)
           FROM chapters c
           WHERE c.manga_id = m.id
-        ) AS chapterCount
+        ) AS chapterCount,
+        (
+          SELECT COALESCE(SUM(json_array_length(c.pages)), 0)
+          FROM chapters c
+          WHERE c.manga_id = m.id
+        ) AS pageCount
       FROM manga m
       ORDER BY m.title COLLATE BINARY
       `,

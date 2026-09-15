@@ -30,6 +30,8 @@ export interface Manga {
   published: string;
   tags: string[];
   chapterCount: number;
+  pageCount: number;
+  split_pages: number;
   cover: string | null;
   chapters: Chapter[];
 }
@@ -43,7 +45,7 @@ export interface Source {
 }
 
 export interface Job {
-  source_id: string;
+  source_id: string | null;
   created: string;
   id: string;
   status: string;

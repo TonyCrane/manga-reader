@@ -17,7 +17,9 @@ import { userRoutes } from "./users";
 import { canRead, requireAdmin, sourceList, setSourceUsers } from "./access";
 import {
   browse,
+  isImporterBusy,
   safeDirectory,
+  startMangaReprocess,
   startImport,
   relativePath,
   upgradeImages,
@@ -229,6 +231,7 @@ const metadata = z.object({
   published: z.string().max(100).optional(),
   created: z.string().datetime({ offset: true }).optional(),
   tags: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
+  splitPages: z.boolean().optional(),
 });
 
 app.patch("/api/manga/:id", (req, res) => {
@@ -236,6 +239,13 @@ app.patch("/api/manga/:id", (req, res) => {
   const old = detail(String(req.params.id));
   if (!old) {
     return res.status(404).json({ error: "漫画不存在" });
+  }
+  const splitPages = input.splitPages ?? Boolean(old.split_pages);
+  const splitPagesChanged = splitPages !== Boolean(old.split_pages);
+  if (splitPagesChanged && isImporterBusy()) {
+    return res
+      .status(409)
+      .json({ error: "请等待当前图片处理任务完成后再修改拆页设置" });
   }
   const override =
     input.title === undefined ? old.title_override : input.title || null;
@@ -250,6 +260,7 @@ app.patch("/api/manga/:id", (req, res) => {
       published = ?,
       tags = ?,
       manual_tags = ?,
+      split_pages = ?,
       created = ?
     WHERE id = ?
     `,
@@ -263,9 +274,13 @@ app.patch("/api/manga/:id", (req, res) => {
       input.tags === undefined ? old.tags : [...new Set(input.tags)],
     ),
     input.tags === undefined ? old.manual_tags : 1,
+    Number(splitPages),
     input.created ?? old.created,
     req.params.id,
   );
+  if (splitPagesChanged) {
+    startMangaReprocess(String(req.params.id), splitPages);
+  }
   res.json(detail(String(req.params.id)));
 });
 

@@ -1524,6 +1524,30 @@ form h3 {
 form > .admin-checkbox {
   margin-top: 20px;
 }
+.manga-split-option {
+  align-items: flex-start;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+}
+.manga-split-option input {
+  margin-top: 2px;
+}
+.manga-split-option span,
+.manga-split-option strong,
+.manga-split-option small {
+  display: block;
+}
+.manga-split-option strong {
+  color: var(--text);
+  line-height: 1.5;
+}
+.manga-split-option small {
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.6;
+}
 .visibility-picker {
   padding: 15px;
   border: 1px solid var(--line);

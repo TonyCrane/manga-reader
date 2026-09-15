@@ -140,6 +140,7 @@ export function MangaEditor({
                       }
                     : {}),
                   ...(tagsEdited ? { tags } : {}),
+                  splitPages: f.has("splitPages"),
                 }),
               );
               for (const c of m.chapters) {
@@ -240,6 +241,20 @@ export function MangaEditor({
           {!m.manual_tags && m.tags.length > 0 && !tagsEdited && (
             <p className="hint">扫描标签：{m.tags.join("、")}</p>
           )}
+          <label className="admin-checkbox manga-split-option">
+            <input
+              name="splitPages"
+              type="checkbox"
+              defaultChecked={Boolean(m.split_pages)}
+              disabled={busy}
+            />
+            <span>
+              <strong>自动拆分跨页图片</strong>
+              <small>
+                关闭后，保存时会重新扫描这部漫画，每张源图完整保留为一页。
+              </small>
+            </span>
+          </label>
           <button
             type="button"
             className="soft-button cover-edit"

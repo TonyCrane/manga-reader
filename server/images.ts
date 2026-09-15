@@ -11,6 +11,12 @@ export const hash = (value: string) =>
 
 export const chapterProcessingVersion = "v5";
 
+export const chapterProcessingKey = (splitPages: boolean) =>
+  splitPages ? chapterProcessingVersion : `${chapterProcessingVersion}:whole`;
+
+export const chapterFingerprint = (signatures: string[], splitPages: boolean) =>
+  hash(`${chapterProcessingKey(splitPages)}:${signatures.join("|")}`);
+
 const doublePageAspectRatio = 1.2;
 
 type PagePart = {
@@ -62,6 +68,7 @@ export async function processChapter(
   files: string[],
   signatures: string[],
   sizes: number[],
+  splitPages: boolean,
   onFile: (reused: boolean) => void,
 ) {
   const metadata = await mapConcurrent(
@@ -78,7 +85,11 @@ export async function processChapter(
       return { width, height };
     },
   );
-  const parts = metadata.map(({ width, height }) => splitPage(width, height));
+  const parts = metadata.map(({ width, height }) =>
+    splitPages
+      ? splitPage(width, height)
+      : [{ left: 0, width, height, part: "single" }],
+  );
   const pages = await mapConcurrent(
     files,
     imageConcurrency,
@@ -87,7 +98,7 @@ export async function processChapter(
       let reused = true;
       for (const part of parts[index]) {
         const signature = hash(
-          `${chapterProcessingVersion}:${signatures[index]}:${part.left}:${part.width}:${part.height}`,
+          `${chapterProcessingKey(splitPages)}:${signatures[index]}:${part.left}:${part.width}:${part.height}`,
         );
         const directory = path.join(chapterId, signature);
         const original = path.join(directory, "page.png");
@@ -160,7 +171,9 @@ export async function processChapter(
           await fs.rename(optimizedTemp, path.join(processedDir, optimized));
         }
         result.push({
-          id: hash(`${chapterId}:${path.basename(file)}:${part.left}`),
+          id: hash(
+            `${chapterId}:${path.basename(file)}:${splitPages ? part.left : "whole"}`,
+          ),
           original,
           optimized,
           thumbnail,

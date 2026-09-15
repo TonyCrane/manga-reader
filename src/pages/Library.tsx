@@ -78,6 +78,7 @@ function LibraryCard({
       <h3>{title}</h3>
       <p>
         {manga.chapterCount} 话<span> · </span>
+        {manga.pageCount} 页<span> · </span>
         {manga.author || "作者未填写"}
       </p>
       {manga.tags.length > 0 && (

@@ -21,6 +21,8 @@ type Preferences = {
   numbers: boolean;
 };
 
+type LandscapePagePreferences = Record<string, 1 | 2>;
+
 function preferences(): Preferences {
   try {
     const p = JSON.parse(localStorage.getItem("reader") || "{}");
@@ -31,6 +33,25 @@ function preferences(): Preferences {
     };
   } catch {
     return { mode: "manga", quality: "optimized", numbers: true };
+  }
+}
+
+function landscapePagePreferences(): LandscapePagePreferences {
+  try {
+    const stored = JSON.parse(
+      localStorage.getItem("reader-landscape-pages") || "{}",
+    );
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(stored).filter(
+        ([mangaId, value]) =>
+          /^[a-f0-9]{24}$/.test(mangaId) && (value === 1 || value === 2),
+      ),
+    ) as LandscapePagePreferences;
+  } catch {
+    return {};
   }
 }
 
@@ -49,6 +70,9 @@ export function Reader() {
   const [menu, setMenu] = useState(false);
   const [sheet, setSheet] = useState<"settings" | "chapters" | null>(null);
   const [prefs, setPrefs] = useState(preferences);
+  const [landscapePagesByManga, setLandscapePagesByManga] = useState(
+    landscapePagePreferences,
+  );
   const [shifted, setShifted] = useState(false);
   const [landscape, setLandscape] = useState(() => innerWidth > innerHeight);
   const [toast, setToast] = useState("");
@@ -58,7 +82,8 @@ export function Reader() {
   const scrollTarget = useRef<string | null>(null);
   const ci = m?.chapters.findIndex((c) => c.id === chapterId) ?? -1;
   const chapter = m?.chapters[ci];
-  const double = landscape && prefs.mode === "manga";
+  const landscapePages = id && landscapePagesByManga[id] === 1 ? 1 : 2;
+  const double = landscape && prefs.mode === "manga" && landscapePages === 2;
   const pairs = spreads(chapter?.pages.length || 0, shifted);
   const pairIndex = spreadIndex(page, shifted);
   const visible = double ? pairs[pairIndex] || [] : [page];
@@ -84,6 +109,12 @@ export function Reader() {
   useEffect(() => {
     localStorage.setItem("reader", JSON.stringify(prefs));
   }, [prefs]);
+  useEffect(() => {
+    localStorage.setItem(
+      "reader-landscape-pages",
+      JSON.stringify(landscapePagesByManga),
+    );
+  }, [landscapePagesByManga]);
   useEffect(() => {
     const onResize = () => setLandscape(innerWidth > innerHeight);
     window.addEventListener("resize", onResize);
@@ -194,7 +225,7 @@ export function Reader() {
   );
   useEffect(() => {
     reset();
-  }, [page, chapterId, landscape, prefs.mode, shifted]);
+  }, [page, chapterId, landscape, prefs.mode, landscapePages, shifted]);
   useEffect(() => {
     if (lastChapter.current !== chapterId) {
       lastChapter.current = chapterId;
@@ -536,6 +567,39 @@ export function Reader() {
                   </button>
                 </div>
               </div>
+              {landscape && prefs.mode === "manga" && (
+                <div className="reader-setting">
+                  <span>横屏显示</span>
+                  <div className="segmented">
+                    <button
+                      className={landscapePages === 1 ? "selected" : ""}
+                      onClick={() => {
+                        if (id) {
+                          setLandscapePagesByManga((current) => ({
+                            ...current,
+                            [id]: 1,
+                          }));
+                        }
+                      }}
+                    >
+                      单页
+                    </button>
+                    <button
+                      className={landscapePages === 2 ? "selected" : ""}
+                      onClick={() => {
+                        if (id) {
+                          setLandscapePagesByManga((current) => ({
+                            ...current,
+                            [id]: 2,
+                          }));
+                        }
+                      }}
+                    >
+                      双页
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="reader-setting">
                 <span>展示页码</span>
                 <button

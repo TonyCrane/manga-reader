@@ -3,6 +3,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { mapConcurrent } from "./concurrency";
 import {
+  chapterFingerprint,
+  chapterProcessingKey,
   chapterProcessingVersion,
   hash,
   outputsExist,
@@ -73,6 +75,8 @@ type Plan = {
 };
 
 let busy = false;
+
+export const isImporterBusy = () => busy;
 
 export function startImport(source: Source, mode: RefreshMode = "all") {
   if (busy) {
@@ -213,18 +217,20 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         ).run(mid);
       }
     })();
-    const mangaTitle = (
-      db.prepare("SELECT title FROM manga WHERE id=?").get(mid) as {
-        title: string;
-      }
-    ).title;
+    const mangaTitle = db
+      .prepare("SELECT title,split_pages FROM manga WHERE id=?")
+      .get(mid) as {
+      title: string;
+      split_pages: number;
+    };
+    const splitPages = Boolean(mangaTitle.split_pages);
     const mangaDoneBefore = done;
     const mangaReusedBefore = reused;
     const mangaSkippedBefore = skippedChapters;
     log.info("import.manga.started", "正在导入漫画", {
       jobId: id,
       mangaId: mid,
-      title: mangaTitle,
+      title: mangaTitle.title,
       path: mangaPath,
       chapterCount: plan.chapters.length,
       imageCount: plan.chapters.reduce(
@@ -252,9 +258,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         (file, index) =>
           `${path.basename(file)}:${stats[index].size}:${stats[index].mtimeMs}`,
       );
-      const fingerprint = hash(
-        `${chapterProcessingVersion}:${signatures.join("|")}`,
-      );
+      const fingerprint = chapterFingerprint(signatures, splitPages);
       const old = db
         .prepare("SELECT * FROM chapters WHERE id=?")
         .get(cid) as any;
@@ -278,7 +282,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
       log.info("import.chapter.started", "正在处理章节", {
         jobId: id,
         mangaId: mid,
-        mangaTitle,
+        mangaTitle: mangaTitle.title,
         chapterId: cid,
         chapterTitle: path.basename(chapter.path),
         imageCount: chapter.files.length,
@@ -289,6 +293,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         chapter.files,
         signatures,
         stats.map((stat) => stat.size),
+        splitPages,
         (cached) => {
           done++;
           completed++;
@@ -331,7 +336,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         );
         db.prepare("INSERT OR REPLACE INTO chapter_versions VALUES (?, ?)").run(
           cid,
-          chapterProcessingVersion,
+          chapterProcessingKey(splitPages),
         );
         db.prepare("UPDATE chapters SET scanned_title=? WHERE id=?").run(
           path.basename(chapter.path),
@@ -356,7 +361,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
     log.info("import.manga.completed", "漫画导入完成", {
       jobId: id,
       mangaId: mid,
-      title: mangaTitle,
+      title: mangaTitle.title,
       processedImages: done - mangaDoneBefore - (reused - mangaReusedBefore),
       reusedImages: reused - mangaReusedBefore,
       skippedChapters: skippedChapters - mangaSkippedBefore,
@@ -382,25 +387,162 @@ async function run(source: Source, id: string, mode: RefreshMode) {
   });
 }
 
+type MangaChapter = {
+  id: string;
+  manga_id: string;
+  path: string;
+  title: string;
+};
+
+export function startMangaReprocess(mangaId: string, splitPages: boolean) {
+  if (busy) {
+    throw Error("已有图片处理任务正在进行，请稍后再试");
+  }
+  const manga = db
+    .prepare("SELECT title FROM manga WHERE id=?")
+    .get(mangaId) as { title: string } | undefined;
+  if (!manga) {
+    throw Error("漫画不存在");
+  }
+  const id = crypto.randomUUID();
+  db.prepare(
+    `INSERT INTO jobs(id,status,message)
+     VALUES(?, 'running', ?)`,
+  ).run(id, `正在重新扫描：${manga.title}`);
+  busy = true;
+  log.info("manga.reprocess.started", "漫画图片重新处理已启动", {
+    jobId: id,
+    mangaId,
+    title: manga.title,
+    splitPages,
+  });
+  void reprocessManga(mangaId, manga.title, splitPages, id)
+    .catch((error) => {
+      const message = errorMessage(error);
+      db.prepare("UPDATE jobs SET status='failed',error=? WHERE id=?").run(
+        message,
+        id,
+      );
+      log.error("manga.reprocess.failed", "漫画图片重新处理失败", {
+        jobId: id,
+        mangaId,
+        title: manga.title,
+        splitPages,
+        error: message,
+      });
+    })
+    .finally(() => {
+      busy = false;
+    });
+  return id;
+}
+
+async function reprocessManga(
+  mangaId: string,
+  mangaTitle: string,
+  splitPages: boolean,
+  jobId: string,
+) {
+  const chapters = db
+    .prepare(
+      `SELECT id,manga_id,path,title
+       FROM chapters
+       WHERE manga_id=?
+       ORDER BY position`,
+    )
+    .all(mangaId) as MangaChapter[];
+  const plans = await mapConcurrent(chapters, 8, async (chapter) => ({
+    chapter,
+    images: await files(await safeDirectory(chapter.path)),
+  }));
+  const total = plans.reduce((sum, plan) => sum + plan.images.length, 0);
+  db.prepare("UPDATE jobs SET total=? WHERE id=?").run(total, jobId);
+  let done = 0;
+  let lastProgress = 0;
+  for (const { chapter, images } of plans) {
+    if (!images.length) {
+      throw Error(`章节素材为空：${chapter.path}`);
+    }
+    const stats = await mapConcurrent(images, 16, (file) => fs.stat(file));
+    const signatures = images.map(
+      (file, index) =>
+        `${path.basename(file)}:${stats[index].size}:${stats[index].mtimeMs}`,
+    );
+    const pages = await processChapter(
+      chapter.id,
+      images,
+      signatures,
+      stats.map((stat) => stat.size),
+      splitPages,
+      () => {
+        done++;
+        if (Date.now() - lastProgress >= 100) {
+          db.prepare("UPDATE jobs SET done=?,message=? WHERE id=?").run(
+            done,
+            `正在重新处理：${mangaTitle} / ${chapter.title}`,
+            jobId,
+          );
+          lastProgress = Date.now();
+        }
+      },
+    );
+    db.transaction(() => {
+      for (const page of pages) {
+        for (const file of [page.original, page.optimized, page.thumbnail]) {
+          db.prepare("INSERT OR REPLACE INTO media_assets VALUES(?,?)").run(
+            file,
+            mangaId,
+          );
+        }
+      }
+      db.prepare("UPDATE chapters SET pages=?,fingerprint=? WHERE id=?").run(
+        JSON.stringify(pages),
+        chapterFingerprint(signatures, splitPages),
+        chapter.id,
+      );
+      db.prepare("INSERT OR REPLACE INTO chapter_versions VALUES(?,?)").run(
+        chapter.id,
+        chapterProcessingKey(splitPages),
+      );
+    })();
+  }
+  db.prepare(
+    `UPDATE jobs
+     SET status='completed',done=total,message='漫画图片重新处理完成'
+     WHERE id=?`,
+  ).run(jobId);
+  log.info("manga.reprocess.completed", "漫画图片重新处理完成", {
+    jobId,
+    mangaId,
+    title: mangaTitle,
+    splitPages,
+    imageCount: total,
+  });
+}
+
 // Upgrade existing records only: preserve retained grants, titles and source links.
 export async function upgradeImages() {
   const chapters = db
     .prepare(
       `
-    SELECT c.id, c.manga_id, c.path, c.title,
+    SELECT c.id, c.manga_id, c.path, c.title, m.split_pages,
       (SELECT MIN(ms.source_id) FROM manga_sources ms
        WHERE ms.manga_id = c.manga_id) AS source_id
     FROM chapters c
+    JOIN manga m ON m.id = c.manga_id
     LEFT JOIN chapter_versions v ON v.chapter_id = c.id
-    WHERE v.version IS NULL OR v.version <> ?
+    WHERE
+      v.version IS NULL
+      OR v.version <> CASE WHEN m.split_pages = 1 THEN ? ELSE ? END
     ORDER BY source_id, c.manga_id, c.position
   `,
     )
-    .all(chapterProcessingVersion) as {
+    .all(chapterProcessingVersion, chapterProcessingKey(false)) as {
     id: string;
     manga_id: string;
     path: string;
     title: string;
+    split_pages: number;
     source_id: string | null;
   }[];
   if (!chapters.length) {
@@ -454,6 +596,7 @@ export async function upgradeImages() {
             images,
             signatures,
             stats.map((stat) => stat.size),
+            Boolean(chapter.split_pages),
             () => {
               done++;
               if (Date.now() - lastProgress >= 100) {
@@ -482,12 +625,15 @@ export async function upgradeImages() {
               "UPDATE chapters SET pages=?,fingerprint=? WHERE id=?",
             ).run(
               JSON.stringify(pages),
-              hash(`${chapterProcessingVersion}:${signatures.join("|")}`),
+              chapterFingerprint(signatures, Boolean(chapter.split_pages)),
               chapter.id,
             );
             db.prepare(
               "INSERT OR REPLACE INTO chapter_versions VALUES(?,?)",
-            ).run(chapter.id, chapterProcessingVersion);
+            ).run(
+              chapter.id,
+              chapterProcessingKey(Boolean(chapter.split_pages)),
+            );
           })();
           log.info("images.upgrade.chapter.completed", "章节图片升级完成", {
             jobId: id,

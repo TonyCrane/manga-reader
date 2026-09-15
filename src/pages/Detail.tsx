@@ -71,7 +71,8 @@ export function Detail() {
               "作者未填写"
             )}
             <span className="dot">·</span>
-            {m.chapterCount} 话
+            {m.chapterCount} 话<span className="dot">·</span>
+            {m.pageCount} 页
           </p>
           <p className="muted">
             {m.published ? `发布时间 ${m.published}` : "发布时间未填写"}
