@@ -3,6 +3,15 @@
   <img alt="Banner" src="docs/images/logo-light.png">
 </picture>
 
+<p align="center">
+  <a href="https://github.com/TonyCrane/manga-reader/actions/workflows/publish-image.yml">
+    <img alt="Publish container image" src="https://github.com/TonyCrane/manga-reader/actions/workflows/publish-image.yml/badge.svg?branch=master">
+  </a>
+  <a href="LICENSE">
+    <img alt="License: AGPL-3.0" src="https://img.shields.io/github/license/TonyCrane/manga-reader?color=FF5531">
+  </a>
+</p>
+
 一个面向 NAS 的自托管纯净漫画阅读器。支持漫画导入管理、阅读优化、跨页拆分与双页合并阅读、哔哩哔哩漫画同款阅读手势与 PWA 应用。
 
 ![书架：搜索、筛选和漫画信息](docs/images/library.png)
@@ -36,9 +45,19 @@
 
 ## 部署
 
-需要 Docker Engine 和 Docker Compose v2。先修改 [`compose.yml`](compose.yml) 中的端口和主机挂载路径：
+需要 Docker Engine 和 Docker Compose v2。项目镜像发布在 `ghcr.io/tonycrane/manga-reader`，支持 `linux/amd64` 和 `linux/arm64`。
+
+下载 [`compose.yml`](compose.yml)：
+
+```sh
+mkdir manga-reader && cd manga-reader
+curl -LO https://raw.githubusercontent.com/TonyCrane/manga-reader/master/compose.yml
+```
+
+打开 `compose.yml`，修改端口、原始漫画目录和 Cookie 设置。默认使用 `latest` 镜像：
 
 ```yaml
+image: ghcr.io/tonycrane/manga-reader:latest
 ports:
   - "3000:3000"
 environment:
@@ -60,8 +79,7 @@ volumes:
 ```sh
 mkdir -p .data .processed
 sudo chown -R 1000:1000 .data .processed
-GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD)" \
-GIT_SHA="$(git rev-parse HEAD)" docker compose up -d --build
+docker compose up -d
 ```
 
 服务启动后访问 `http://服务器地址:3000`。可以通过以下命令确认容器状态：
@@ -73,7 +91,7 @@ docker compose logs --tail=50
 
 通过 HTTPS 访问时，将 `COOKIE_SECURE` 改为 `"true"`。反向代理需要保留 `Host` 请求头，并允许最多 20 MiB 的封面上传。
 
-`GIT_BRANCH` 和 `GIT_SHA` 是可选的构建信息，会显示在“设置 → 关于”中；未提供时显示为 `unknown`。
+`latest` 会随 `master` 分支更新。每次发布也会生成对应的 7 位提交 SHA 标签；需要固定版本时，可以在 `compose.yml` 中将 `latest` 换成该标签。
 
 ## 漫画目录
 

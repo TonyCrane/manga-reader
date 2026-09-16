@@ -1,12 +1,7 @@
 name: manga-reader
 services:
   manga-reader:
-    build:
-      context: .
-      args:
-        GIT_BRANCH: ${GIT_BRANCH:-unknown}
-        GIT_SHA: ${GIT_SHA:-unknown}
-    image: manga-reader:local
+    image: ghcr.io/tonycrane/manga-reader:latest
     restart: unless-stopped
     ports:
       - "3000:3000"

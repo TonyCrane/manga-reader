@@ -72,7 +72,8 @@ npm run build
 npm run format:check
 npm run format
 docker compose config --quiet
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose ps
 docker compose logs --tail=50
 ```
