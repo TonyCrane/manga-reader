@@ -42,6 +42,7 @@ import { errorMessage, log } from "./log";
 
 import { translationRoutes } from "./translation";
 import { versionInfo } from "./version";
+import { getAppConfig, setAppName } from "./settings";
 
 const app = express();
 const mangaIdSchema = z.string().regex(/^[a-f0-9]{24}$/, "无效的漫画 ID");
@@ -149,11 +150,57 @@ app.use((req, res, next) => {
 });
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+app.get("/api/config", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(getAppConfig());
+});
+app.get("/manifest.webmanifest", (_req, res) => {
+  const { appName } = getAppConfig();
+  res.setHeader("Cache-Control", "no-store");
+  res.type("application/manifest+json").json({
+    id: "/",
+    name: appName,
+    short_name: appName,
+    lang: "zh-CN",
+    description: "属于你的私人漫画书架",
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+    background_color: "#f8f9fc",
+    theme_color: "#f8f9fc",
+    icons: [
+      {
+        src: "/icon-192.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/icon-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "any maskable",
+      },
+    ],
+  });
+});
 app.use("/api", publicAuth);
 app.use(["/api", "/media"], authenticate);
 app.use("/api", accountRoutes);
 app.use(["/api", "/media"], requirePasswordChanged);
 app.use("/api/account/translation", requireAdmin, translationRoutes);
+app.put("/api/system-settings", requireAdmin, (req, res) => {
+  const { appName } = z
+    .object({
+      appName: z
+        .string()
+        .trim()
+        .min(1, "请输入应用名称")
+        .max(50, "应用名称最多 50 个字符"),
+    })
+    .parse(req.body);
+  res.json(setAppName(appName));
+});
 app.get("/api/version", (_req, res) => res.json(versionInfo));
 app.use("/api/users", userRoutes);
 app.use(["/api/sources", "/api/jobs", "/api/directories"], requireAdmin);

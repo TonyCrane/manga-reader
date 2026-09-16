@@ -509,7 +509,7 @@ a svg {
 }
 .settings-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
   align-items: start;
   gap: 24px;
 }
@@ -529,6 +529,31 @@ a svg {
 .panel-heading p {
   font-size: 13px;
   color: var(--muted);
+  margin-bottom: 0;
+}
+.app-name-form label {
+  margin-top: 0;
+}
+.app-name-control {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  margin-top: 9px;
+}
+.app-name-control input {
+  flex: 1;
+}
+.app-name-control .primary {
+  flex-shrink: 0;
+  min-width: 86px;
+}
+.app-name-form .hint {
+  margin-top: 14px;
+  margin-bottom: 0;
+}
+.app-name-form .error,
+.app-name-form .app-name-status {
+  margin-top: 14px;
   margin-bottom: 0;
 }
 .theme-options {
@@ -975,6 +1000,9 @@ form h3 {
   }
 }
 @media (max-width: 900px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
   .manga-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 25px 18px;
@@ -1524,9 +1552,6 @@ form h3 {
 }
 .settings-link span {
   flex: 1;
-}
-.users-panel {
-  grid-column: 1/-1;
 }
 .user-row {
   display: flex;

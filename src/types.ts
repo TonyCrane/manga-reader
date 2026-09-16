@@ -74,3 +74,7 @@ export type VersionInfo = {
   builtAt: string | null;
   docker: boolean;
 };
+
+export type AppConfig = {
+  appName: string;
+};

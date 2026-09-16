@@ -9,7 +9,7 @@ import {
   Settings2,
 } from "lucide-react";
 import { api, json } from "../lib/api";
-import type { Source, Job } from "../types";
+import type { AppConfig, Source, Job } from "../types";
 import { useAccount } from "../context/AccountContext";
 import { UserManagement } from "../components/UserManagement";
 import { Link } from "react-router-dom";
@@ -69,8 +69,18 @@ function jobEstimate(job: Job) {
   };
 }
 
-export function SystemSettings() {
+export function SystemSettings({
+  appName,
+  onAppNameChanged,
+}: {
+  appName: string;
+  onAppNameChanged: (appName: string) => void;
+}) {
   const { user } = useAccount();
+  const [name, setName] = useState(appName);
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState("");
+  const [nameSaved, setNameSaved] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [userIds, setUserIds] = useState<string[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
@@ -176,6 +186,70 @@ export function SystemSettings() {
         </p>
       )}
       <div className="settings-layout">
+        <section className="panel app-settings-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>应用设置</h2>
+              <p>自定义浏览器标题与 PWA 应用名</p>
+            </div>
+          </div>
+          <form
+            className="account-form app-name-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setNameError("");
+              setNameSaved(false);
+              setSavingName(true);
+              void api<AppConfig>(
+                "/system-settings",
+                json("PUT", { appName: name }),
+              )
+                .then((config) => {
+                  setName(config.appName);
+                  onAppNameChanged(config.appName);
+                  setNameSaved(true);
+                })
+                .catch((error: Error) => setNameError(error.message))
+                .finally(() => setSavingName(false));
+            }}
+          >
+            <label>
+              应用名称
+              <span className="app-name-control">
+                <input
+                  value={name}
+                  required
+                  maxLength={50}
+                  onChange={(event) => {
+                    setName(event.target.value);
+                    setNameSaved(false);
+                  }}
+                />
+                <button
+                  className="primary"
+                  disabled={
+                    savingName || !name.trim() || name.trim() === appName
+                  }
+                >
+                  {savingName ? "保存中…" : "保存"}
+                </button>
+              </span>
+            </label>
+            <p className="hint">
+              已安装的 PWA 可能需要重新添加到主屏幕才能更新名称。
+            </p>
+            {nameError && (
+              <p className="error" role="alert">
+                {nameError}
+              </p>
+            )}
+            {nameSaved && (
+              <p className="hint app-name-status" role="status">
+                应用名称已保存
+              </p>
+            )}
+          </form>
+        </section>
         <UserManagement users={users} onChanged={load} />
         <section className="panel sources-panel">
           <div className="panel-heading">

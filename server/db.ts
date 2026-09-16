@@ -113,6 +113,11 @@ db.exec(`
     prompt TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS system_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     expires INTEGER NOT NULL,

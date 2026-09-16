@@ -9,7 +9,7 @@ import {
 import { BookOpen, Settings } from "lucide-react";
 import { AccountContext } from "./context/AccountContext";
 import { api, json } from "./lib/api";
-import type { User } from "./types";
+import type { AppConfig, User } from "./types";
 import { Library } from "./pages/Library";
 import { SettingsPage } from "./pages/Settings";
 import { SystemSettings } from "./pages/SystemSettings";
@@ -23,6 +23,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [setup, setSetup] = useState(false);
   const [error, setError] = useState("");
+  const [appName, setAppName] = useState("manga-reader");
   const [theme, setTheme] = useState(
     () => localStorage.getItem("theme") || "light",
   );
@@ -32,8 +33,18 @@ export default function App() {
     localStorage.setItem("theme", theme);
   }, [theme]);
   useEffect(() => {
-    api<{ needsSetup: boolean }>("/setup")
-      .then(async (status) => {
+    document.title = appName;
+    document
+      .querySelector('meta[name="apple-mobile-web-app-title"]')
+      ?.setAttribute("content", appName);
+  }, [appName]);
+  useEffect(() => {
+    Promise.all([
+      api<AppConfig>("/config"),
+      api<{ needsSetup: boolean }>("/setup"),
+    ])
+      .then(async ([config, status]) => {
+        setAppName(config.appName);
         setSetup(status.needsSetup);
         if (!status.needsSetup) {
           try {
@@ -140,7 +151,10 @@ export default function App() {
                       path="/settings/system"
                       element={
                         user.isAdmin ? (
-                          <SystemSettings />
+                          <SystemSettings
+                            appName={appName}
+                            onAppNameChanged={setAppName}
+                          />
                         ) : (
                           <Navigate to="/settings" replace />
                         )
