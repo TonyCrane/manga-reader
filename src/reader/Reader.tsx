@@ -8,7 +8,7 @@ import {
   ChevronRight,
   Columns2,
 } from "lucide-react";
-import { api, media } from "../lib/api";
+import { api, pageMedia } from "../lib/api";
 import type { Manga, Page } from "../types";
 import { Sheet } from "../components/Sheet";
 import { spreads, spreadIndex } from "./pagination";
@@ -268,29 +268,38 @@ export function Reader() {
     const ahead = chapter.pages
       .slice(page + 1, page + 10)
       .filter((item) => !currentPageIds.has(item.id))
-      .slice(0, 8);
+      .slice(0, 8)
+      .map((page) => ({ chapterId: chapter.id, page }));
     if (ahead.length < 8) {
       ahead.push(
-        ...(m.chapters[ci + 1]?.pages.slice(0, 8 - ahead.length) || []),
+        ...(m.chapters[ci + 1]?.pages
+          .slice(0, 8 - ahead.length)
+          .map((page) => ({ chapterId: m.chapters[ci + 1].id, page })) || []),
       );
     }
-    const behind = chapter.pages.slice(Math.max(0, page - 2), page).reverse();
+    const behind = chapter.pages
+      .slice(Math.max(0, page - 2), page)
+      .reverse()
+      .map((page) => ({ chapterId: chapter.id, page }));
     if (behind.length < 2) {
       behind.push(
-        ...(m.chapters[ci - 1]?.pages.slice(behind.length - 2).reverse() || []),
+        ...(m.chapters[ci - 1]?.pages
+          .slice(behind.length - 2)
+          .reverse()
+          .map((page) => ({ chapterId: m.chapters[ci - 1].id, page })) || []),
       );
     }
     const currentUrls = new Set(
       visible.flatMap((index) =>
         index === null || !chapter.pages[index]
           ? []
-          : [media(chapter.pages[index][prefs.quality])],
+          : [pageMedia(chapter.id, chapter.pages[index], prefs.quality)],
       ),
     );
     const urls = [
       ...new Set(
         [...ahead, ...behind]
-          .map((item) => media(item[prefs.quality]))
+          .map((item) => pageMedia(item.chapterId, item.page, prefs.quality))
           .filter((url) => !currentUrls.has(url)),
       ),
     ];
@@ -483,6 +492,7 @@ export function Reader() {
                     ) : (
                       <ReaderImage
                         key={`${frame.chapter.id}-${index}-${prefs.quality}`}
+                        chapterId={frame.chapter.id}
                         page={frame.chapter.pages[index]}
                         quality={prefs.quality}
                         number={index + 1}
@@ -516,7 +526,7 @@ export function Reader() {
                   style={{ aspectRatio: p.width / p.height }}
                 >
                   <img
-                    src={media(p[prefs.quality])}
+                    src={pageMedia(c.id, p, prefs.quality)}
                     alt={`${c.title} 第 ${i + 1} 页`}
                     loading="lazy"
                     decoding="async"
@@ -746,12 +756,14 @@ export function Reader() {
 }
 
 function ReaderImage({
+  chapterId,
   page,
   quality,
   number,
   priority,
   onLoad,
 }: {
+  chapterId: string;
   page: Page;
   quality: "original" | "optimized";
   number: number;
@@ -788,7 +800,10 @@ function ReaderImage({
         </button>
       ) : (
         <img
-          src={media(page[quality]) + (retry ? `?retry=${retry}` : "")}
+          src={
+            pageMedia(chapterId, page, quality) +
+            (retry ? `?retry=${retry}` : "")
+          }
           alt={`第 ${number} 页`}
           draggable={false}
           decoding="async"

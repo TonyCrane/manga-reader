@@ -12,6 +12,7 @@ import {
 } from "./images";
 import { db, mangaDir } from "./db";
 import { errorMessage, log } from "./log";
+import { isStorageMaintenanceBusy } from "./storage";
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -52,6 +53,76 @@ async function files(p: string) {
     .sort(compareImages);
 }
 
+async function sourceImageStats(root: string) {
+  const directories = [root];
+  let cursor = 0;
+  let imageCount = 0;
+  let imageBytes = 0;
+  while (cursor < directories.length) {
+    const batch = directories.slice(cursor, cursor + 32);
+    cursor += batch.length;
+    const listings = await mapConcurrent(batch, 16, async (directory) => ({
+      directory,
+      entries: await fs.readdir(directory, { withFileTypes: true }),
+    }));
+    const images: string[] = [];
+    for (const listing of listings) {
+      for (const entry of listing.entries) {
+        const file = path.join(listing.directory, entry.name);
+        if (entry.isDirectory() && !entry.name.startsWith(".")) {
+          directories.push(file);
+        } else if (entry.isFile() && extensions.test(entry.name)) {
+          images.push(file);
+        }
+      }
+    }
+    const sizes = await mapConcurrent(images, 32, (file) => fs.stat(file));
+    imageCount += sizes.length;
+    imageBytes += sizes.reduce((sum, stat) => sum + stat.size, 0);
+  }
+  return { imageCount, imageBytes };
+}
+
+async function updateSourceStats(source: Source) {
+  const stats = await sourceImageStats(await safeDirectory(source.path));
+  db.prepare(
+    `
+    UPDATE sources
+    SET image_count=?,image_bytes=?,stats_updated=?
+    WHERE id=?
+    `,
+  ).run(
+    stats.imageCount,
+    stats.imageBytes,
+    new Date().toISOString(),
+    source.id,
+  );
+  return stats;
+}
+
+export async function upgradeSourceStats() {
+  const sources = db
+    .prepare(
+      "SELECT id,path,mode FROM sources WHERE stats_updated IS NULL ORDER BY rowid",
+    )
+    .all() as Source[];
+  for (const source of sources) {
+    try {
+      const stats = await updateSourceStats(source);
+      log.info("source.stats.updated", "导入源空间统计已更新", {
+        sourceId: source.id,
+        imageCount: stats.imageCount,
+        imageBytes: stats.imageBytes,
+      });
+    } catch (error) {
+      log.warn("source.stats.failed", "导入源空间统计失败", {
+        sourceId: source.id,
+        error: errorMessage(error),
+      });
+    }
+  }
+}
+
 export const relativePath = async (p: string) =>
   path.relative(await fs.realpath(mangaDir), p) || ".";
 
@@ -66,6 +137,18 @@ export async function browse(input: string) {
 
 type Source = { id: string; path: string; mode: string };
 
+type StoredPage = {
+  original: string | null;
+  optimized: string;
+  thumbnail: string;
+  part: string;
+};
+
+const pageAssets = (page: StoredPage) =>
+  [page.original, page.optimized, page.thumbnail].filter(
+    (file): file is string => Boolean(file),
+  );
+
 export type RefreshMode = "all" | "new";
 
 type Plan = {
@@ -79,7 +162,7 @@ let busy = false;
 export const isImporterBusy = () => busy;
 
 export function startImport(source: Source, mode: RefreshMode = "all") {
-  if (busy) {
+  if (busy || isStorageMaintenanceBusy()) {
     throw Error("已有导入任务正在进行");
   }
   busy = true;
@@ -265,13 +348,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
       if (
         old?.fingerprint === fingerprint &&
         (await outputsExist(
-          JSON.parse(old.pages).flatMap(
-            (page: {
-              optimized: string;
-              original: string;
-              thumbnail: string;
-            }) => [page.optimized, page.original, page.thumbnail],
-          ),
+          JSON.parse(old.pages).flatMap((page: StoredPage) => pageAssets(page)),
         ))
       ) {
         done += chapter.files.length;
@@ -307,7 +384,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
       );
       db.transaction(() => {
         for (const page of pages) {
-          for (const file of [page.original, page.optimized, page.thumbnail]) {
+          for (const file of pageAssets(page)) {
             db.prepare("INSERT OR REPLACE INTO media_assets VALUES(?,?)").run(
               file,
               mid,
@@ -369,6 +446,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
       skippedChapters: skippedChapters - mangaSkippedBefore,
     });
   }
+  const sourceStats = await updateSourceStats(source);
   db.prepare("UPDATE sources SET last_scan=? WHERE id=?").run(
     new Date().toISOString(),
     source.id,
@@ -385,6 +463,8 @@ async function run(source: Source, id: string, mode: RefreshMode) {
     processedImages: total - reused,
     reusedImages: reused,
     skippedChapters,
+    sourceImageCount: sourceStats.imageCount,
+    sourceImageBytes: sourceStats.imageBytes,
     durationMs: Date.now() - startedAt,
   });
 }
@@ -397,7 +477,7 @@ type MangaChapter = {
 };
 
 export function startMangaReprocess(mangaId: string, splitPages: boolean) {
-  if (busy) {
+  if (busy || isStorageMaintenanceBusy()) {
     throw Error("已有图片处理任务正在进行，请稍后再试");
   }
   const manga = db
@@ -490,7 +570,7 @@ async function reprocessManga(
     );
     db.transaction(() => {
       for (const page of pages) {
-        for (const file of [page.original, page.optimized, page.thumbnail]) {
+        for (const file of pageAssets(page)) {
           db.prepare("INSERT OR REPLACE INTO media_assets VALUES(?,?)").run(
             file,
             mangaId,
@@ -530,7 +610,8 @@ export async function upgradeImages() {
   const chapters = db
     .prepare(
       `
-    SELECT c.id, c.manga_id, c.path, c.title, m.split_pages,
+    SELECT c.id, c.manga_id, c.path, c.title, c.pages, c.fingerprint,
+      m.split_pages, v.version AS processing_version,
       (SELECT MIN(ms.source_id) FROM manga_sources ms
        WHERE ms.manga_id = c.manga_id) AS source_id
     FROM chapters c
@@ -547,7 +628,10 @@ export async function upgradeImages() {
     manga_id: string;
     path: string;
     title: string;
+    pages: string;
+    fingerprint: string;
     split_pages: number;
+    processing_version: string | null;
     source_id: string | null;
   }[];
   if (!chapters.length) {
@@ -596,12 +680,66 @@ export async function upgradeImages() {
             (file, i) =>
               `${path.basename(file)}:${stats[i].size}:${stats[i].mtimeMs}`,
           );
+          const splitPages = Boolean(chapter.split_pages);
+          const legacyKey = splitPages ? "v5" : "v5:whole";
+          const legacyFingerprint = hash(
+            `${legacyKey}:${signatures.join("|")}`,
+          );
+          if (
+            chapter.processing_version === legacyKey &&
+            chapter.fingerprint === legacyFingerprint
+          ) {
+            const migratedPages = (
+              JSON.parse(chapter.pages) as StoredPage[]
+            ).map((page) => ({
+              ...page,
+              original: page.part === "single" ? null : page.original,
+            }));
+            if (
+              migratedPages.every(
+                (page) =>
+                  page.optimized &&
+                  page.thumbnail &&
+                  (page.part === "single" || page.original),
+              ) &&
+              (await outputsExist(migratedPages.flatMap(pageAssets)))
+            ) {
+              db.transaction(() => {
+                db.prepare(
+                  "UPDATE chapters SET pages=?,fingerprint=? WHERE id=?",
+                ).run(
+                  JSON.stringify(migratedPages),
+                  chapterFingerprint(signatures, splitPages),
+                  chapter.id,
+                );
+                db.prepare(
+                  "INSERT OR REPLACE INTO chapter_versions VALUES(?,?)",
+                ).run(chapter.id, chapterProcessingKey(splitPages));
+              })();
+              done += images.length;
+              db.prepare("UPDATE jobs SET done=?,message=? WHERE id=?").run(
+                done,
+                `图片版本升级：${chapter.path}`,
+                id,
+              );
+              log.info(
+                "images.upgrade.chapter.migrated",
+                "章节图片记录已升级并复用现有文件",
+                {
+                  jobId: id,
+                  chapterId: chapter.id,
+                  pageCount: migratedPages.length,
+                },
+              );
+              continue;
+            }
+          }
           const pages = await processChapter(
             chapter.id,
             images,
             signatures,
             stats.map((stat) => stat.size),
-            Boolean(chapter.split_pages),
+            splitPages,
             () => {
               done++;
               if (Date.now() - lastProgress >= 100) {
@@ -616,11 +754,7 @@ export async function upgradeImages() {
           );
           db.transaction(() => {
             for (const page of pages) {
-              for (const file of [
-                page.original,
-                page.optimized,
-                page.thumbnail,
-              ]) {
+              for (const file of pageAssets(page)) {
                 db.prepare(
                   "INSERT OR REPLACE INTO media_assets VALUES(?,?)",
                 ).run(file, chapter.manga_id);
@@ -631,15 +765,12 @@ export async function upgradeImages() {
             ).run(
               JSON.stringify(pages),
               pages.length,
-              chapterFingerprint(signatures, Boolean(chapter.split_pages)),
+              chapterFingerprint(signatures, splitPages),
               chapter.id,
             );
             db.prepare(
               "INSERT OR REPLACE INTO chapter_versions VALUES(?,?)",
-            ).run(
-              chapter.id,
-              chapterProcessingKey(Boolean(chapter.split_pages)),
-            );
+            ).run(chapter.id, chapterProcessingKey(splitPages));
           })();
           log.info("images.upgrade.chapter.completed", "章节图片升级完成", {
             jobId: id,

@@ -583,8 +583,89 @@ a svg {
   color: var(--accent);
 }
 .sources-panel,
-.account-panel {
+.account-panel,
+.storage-panel {
   grid-column: 1/-1;
+}
+.storage-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 110px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.storage-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.storage-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 18px;
+  border-radius: 11px;
+  background: var(--soft);
+}
+.storage-summary span,
+.storage-summary small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.storage-summary strong {
+  font-size: 22px;
+  letter-spacing: -0.5px;
+}
+.storage-summary .reclaimable {
+  background: #c84c4c0d;
+}
+.storage-summary .reclaimable strong {
+  color: #ce5252;
+}
+.storage-breakdown {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.storage-breakdown > div {
+  display: grid;
+  grid-template-columns:
+    minmax(140px, 1fr) minmax(72px, 0.35fr) minmax(90px, 0.45fr)
+    minmax(90px, 0.45fr);
+  gap: 12px;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.storage-breakdown > div span:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.storage-breakdown-heading {
+  color: var(--muted);
+  font-size: 10px !important;
+}
+.storage-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 18px;
+}
+.storage-actions .hint {
+  margin: 0;
+}
+.storage-actions .danger-button {
+  flex-shrink: 0;
+  margin: 0;
+}
+.storage-cleaned {
+  padding: 12px 14px;
+  margin: 16px 0 0;
+  border-radius: 9px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 12px;
 }
 .folder-icon {
   display: inline-flex;
@@ -617,7 +698,6 @@ a svg {
 .source-info .tag {
   margin-left: 10px;
 }
-.source-info code,
 .source-info small {
   color: var(--muted);
 }
@@ -1169,8 +1249,27 @@ form h3 {
   .source-row > .icon {
     min-width: 28px;
   }
-  .source-info code {
+  .storage-summary {
+    grid-template-columns: 1fr;
+  }
+  .storage-summary > div {
+    padding: 15px;
+  }
+  .storage-summary strong {
+    font-size: 19px;
+  }
+  .storage-breakdown > div {
+    grid-template-columns: minmax(94px, 1fr) 58px 65px 65px;
+    gap: 7px;
     font-size: 10px;
+  }
+  .storage-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .storage-actions .danger-button {
+    width: 100%;
   }
   .account-panel {
     gap: 15px;

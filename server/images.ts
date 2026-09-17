@@ -9,7 +9,7 @@ sharp.concurrency(1);
 export const hash = (value: string) =>
   crypto.createHash("sha256").update(value).digest("hex").slice(0, 24);
 
-export const chapterProcessingVersion = "v5";
+export const chapterProcessingVersion = "v6";
 
 export const chapterProcessingKey = (splitPages: boolean) =>
   splitPages ? chapterProcessingVersion : `${chapterProcessingVersion}:whole`;
@@ -51,9 +51,10 @@ function splitPage(width: number, height: number): PagePart[] {
   });
 }
 
-export async function outputsExist(files: string[]) {
+export async function outputsExist(files: (string | null | undefined)[]) {
+  const expected = files.filter((file): file is string => Boolean(file));
   return (
-    await mapConcurrent(files, 8, async (file) => {
+    await mapConcurrent(expected, 8, async (file) => {
       try {
         return (await fs.stat(path.join(processedDir, file))).size > 0;
       } catch {
@@ -96,12 +97,15 @@ export async function processChapter(
     async (file, index) => {
       const result = [];
       let reused = true;
+      const needsDerivedOriginal = parts[index].length > 1;
       for (const part of parts[index]) {
         const signature = hash(
           `${chapterProcessingKey(splitPages)}:${signatures[index]}:${part.left}:${part.width}:${part.height}`,
         );
         const directory = path.join(chapterId, signature);
-        const original = path.join(directory, "page.png");
+        const original = needsDerivedOriginal
+          ? path.join(directory, "page.png")
+          : null;
         const optimized = path.join(directory, "page.webp");
         const thumbnail = path.join(directory, "preview.webp");
         if (!(await outputsExist([original, optimized, thumbnail]))) {
@@ -129,11 +133,9 @@ export async function processChapter(
                 : { height: 16000, withoutEnlargement: true },
             );
           }
-          const originalTemp = path.join(
-            processedDir,
-            directory,
-            "pending.png",
-          );
+          const originalTemp = original
+            ? path.join(processedDir, directory, "pending.png")
+            : null;
           const optimizedTemp = path.join(
             processedDir,
             directory,
@@ -144,31 +146,48 @@ export async function processChapter(
             directory,
             "pending-preview.webp",
           );
-          const outcomes = await Promise.allSettled([
-            normalized.clone().png().toFile(originalTemp),
-            normalized
-              .clone()
-              .resize({
-                width: 240,
-                height: 360,
-                fit: "inside",
-                withoutEnlargement: true,
-              })
-              .webp({ quality: 65, effort: 4 })
-              .toFile(thumbnailTemp),
-            optimizedImage
-              .webp(small ? { lossless: true } : { quality: 85, effort: 4 })
-              .toFile(optimizedTemp),
-          ]);
-          const failure = outcomes.find(
-            (outcome) => outcome.status === "rejected",
-          );
-          if (failure?.status === "rejected") {
-            throw failure.reason;
+          const temporaryFiles = [
+            originalTemp,
+            optimizedTemp,
+            thumbnailTemp,
+          ].filter((file): file is string => Boolean(file));
+          try {
+            const writes = [
+              normalized
+                .clone()
+                .resize({
+                  width: 240,
+                  height: 360,
+                  fit: "inside",
+                  withoutEnlargement: true,
+                })
+                .webp({ quality: 65, effort: 4 })
+                .toFile(thumbnailTemp),
+              optimizedImage
+                .webp(small ? { lossless: true } : { quality: 85, effort: 4 })
+                .toFile(optimizedTemp),
+            ];
+            if (originalTemp) {
+              writes.push(normalized.clone().png().toFile(originalTemp));
+            }
+            const outcomes = await Promise.allSettled(writes);
+            const failure = outcomes.find(
+              (outcome) => outcome.status === "rejected",
+            );
+            if (failure?.status === "rejected") {
+              throw failure.reason;
+            }
+            await fs.rename(thumbnailTemp, path.join(processedDir, thumbnail));
+            await fs.rename(optimizedTemp, path.join(processedDir, optimized));
+            if (originalTemp && original) {
+              await fs.rename(originalTemp, path.join(processedDir, original));
+            }
+          } catch (error) {
+            await Promise.all(
+              temporaryFiles.map((file) => fs.rm(file, { force: true })),
+            );
+            throw error;
           }
-          await fs.rename(thumbnailTemp, path.join(processedDir, thumbnail));
-          await fs.rename(originalTemp, path.join(processedDir, original));
-          await fs.rename(optimizedTemp, path.join(processedDir, optimized));
         }
         result.push({
           id: hash(

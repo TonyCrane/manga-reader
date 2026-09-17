@@ -7,9 +7,17 @@ import {
   ArrowLeft,
   Trash2,
   Settings2,
+  HardDrive,
 } from "lucide-react";
 import { api, json } from "../lib/api";
-import type { AppConfig, Source, Job } from "../types";
+import type {
+  AppConfig,
+  Source,
+  Job,
+  StorageAnalysis,
+  StorageBucket,
+  StorageCleanupResult,
+} from "../types";
 import { useAccount } from "../context/AccountContext";
 import { UserManagement } from "../components/UserManagement";
 import { Link } from "react-router-dom";
@@ -22,6 +30,28 @@ const modes: Record<string, string> = {
   one: "一层扫描",
   two: "二层扫描",
 };
+
+const storageKinds: [keyof StorageAnalysis["kinds"], string][] = [
+  ["original", "拆分页无损原图"],
+  ["optimized", "优化阅读图"],
+  ["preview", "页面预览图"],
+  ["cover", "封面与缩略图"],
+  ["other", "其他文件"],
+];
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let value = bytes / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && value >= 1024; index++) {
+    value /= 1024;
+    unit = units[index];
+  }
+  return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)} ${unit}`;
+}
 
 function duration(seconds: number) {
   const rounded = Math.max(1, Math.ceil(seconds));
@@ -91,6 +121,14 @@ export function SystemSettings({
   const [editingSource, setEditingSource] = useState<Source | null>(null);
   const [deletingSource, setDeletingSource] = useState<Source | null>(null);
   const [history, setHistory] = useState<Job[]>([]);
+  const [storage, setStorage] = useState<StorageAnalysis | null>(null);
+  const [storageLoading, setStorageLoading] = useState(false);
+  const [storageError, setStorageError] = useState("");
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<StorageBucket | null>(
+    null,
+  );
   const observedJobs = useRef(new Set<string>());
   async function refresh(id: string, mode: "all" | "new" = "all") {
     const job = await api<{ id: string }>(
@@ -144,8 +182,20 @@ export function SystemSettings({
       setError((e as Error).message);
     }
   };
+  async function loadStorage() {
+    setStorageLoading(true);
+    setStorageError("");
+    try {
+      setStorage(await api<StorageAnalysis>("/storage"));
+    } catch (error) {
+      setStorageError((error as Error).message);
+    } finally {
+      setStorageLoading(false);
+    }
+  }
   useEffect(() => {
     void load();
+    void loadStorage();
     const timer = setInterval(load, 1500);
     return () => clearInterval(timer);
   }, []);
@@ -251,6 +301,110 @@ export function SystemSettings({
           </form>
         </section>
         <UserManagement users={users} onChanged={load} />
+        <section className="panel storage-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>空间占用</h2>
+              <p>分析处理图片，并清理由旧版本或失败任务留下的文件</p>
+            </div>
+            <button
+              className="soft-button"
+              disabled={storageLoading || cleaning || active}
+              onClick={() => void loadStorage()}
+            >
+              <RefreshCw size={16} />
+              {storageLoading ? "分析中…" : "重新分析"}
+            </button>
+          </div>
+          {!storage && storageLoading && (
+            <div className="storage-loading" role="status">
+              <HardDrive size={26} />
+              正在扫描处理图片…
+            </div>
+          )}
+          {storageError && (
+            <p className="error" role="alert">
+              {storageError}
+            </p>
+          )}
+          {storage && (
+            <>
+              <div className="storage-summary">
+                <div>
+                  <span>处理目录</span>
+                  <strong>{formatBytes(storage.total.bytes)}</strong>
+                  <small>{storage.total.files.toLocaleString()} 个文件</small>
+                </div>
+                <div>
+                  <span>正在使用</span>
+                  <strong>{formatBytes(storage.used.bytes)}</strong>
+                  <small>{storage.used.files.toLocaleString()} 个文件</small>
+                </div>
+                <div className="reclaimable">
+                  <span>可以清理</span>
+                  <strong>{formatBytes(storage.reclaimable.bytes)}</strong>
+                  <small>
+                    旧记录 {formatBytes(storage.databaseStale.bytes)} · 孤儿文件{" "}
+                    {formatBytes(storage.orphaned.bytes)}
+                  </small>
+                </div>
+              </div>
+              <div className="storage-breakdown">
+                <div className="storage-breakdown-heading">
+                  <span>文件类型</span>
+                  <span>图片数量</span>
+                  <span>使用中</span>
+                  <span>可清理</span>
+                </div>
+                {storageKinds.map(([kind, label]) => (
+                  <div key={kind}>
+                    <span>{label}</span>
+                    <span>
+                      {(
+                        storage.kinds[kind].used.files +
+                        storage.kinds[kind].reclaimable.files
+                      ).toLocaleString()}
+                    </span>
+                    <span>{formatBytes(storage.kinds[kind].used.bytes)}</span>
+                    <span>
+                      {formatBytes(storage.kinds[kind].reclaimable.bytes)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {storage.missingFiles > 0 && (
+                <p className="error" role="alert">
+                  有 {storage.missingFiles.toLocaleString()}{" "}
+                  个当前图片文件缺失，建议先刷新全部。
+                </p>
+              )}
+              {cleanupResult && (
+                <p className="storage-cleaned" role="status">
+                  已删除 {cleanupResult.files.toLocaleString()} 个无用文件，释放{" "}
+                  {formatBytes(cleanupResult.bytes)}。
+                </p>
+              )}
+              <div className="storage-actions">
+                <p className="hint">
+                  清理只会删除当前章节、封面和预览不再引用的处理文件，不会修改原始漫画目录。
+                </p>
+                <button
+                  className="danger-button"
+                  disabled={
+                    cleaning ||
+                    active ||
+                    storage.reclaimable.files === 0 ||
+                    storage.missingFiles > 0
+                  }
+                  onClick={() => setCleanupOpen(true)}
+                >
+                  <Trash2 size={16} />
+                  清理无用图片
+                </button>
+              </div>
+            </>
+          )}
+        </section>
         <section className="panel sources-panel">
           <div className="panel-heading">
             <div>
@@ -276,14 +430,14 @@ export function SystemSettings({
                 </span>
                 <div className="source-info">
                   <strong>
-                    {s.path === "."
-                      ? "素材根目录"
-                      : s.path.split("/").pop() || s.path}
+                    {s.path}
                     <span className="tag">{modes[s.mode]}</span>
                   </strong>
-                  <code>{s.path}</code>
-                  <small>
-                    上次刷新：
+                  <small className="source-metrics">
+                    {s.stats_updated
+                      ? `${s.image_count.toLocaleString()} 张图片 · ${formatBytes(s.image_bytes)}`
+                      : "正在统计图片数量与大小…"}
+                    {" · 上次刷新："}
                     {s.last_scan
                       ? new Date(s.last_scan).toLocaleString("zh-CN")
                       : "尚未刷新"}
@@ -615,6 +769,54 @@ export function SystemSettings({
           >
             取消
           </button>
+        </Sheet>
+      )}
+      {cleanupOpen && storage && (
+        <Sheet title="清理无用图片" onClose={() => setCleanupOpen(false)}>
+          <p>
+            将删除 {storage.reclaimable.files.toLocaleString()}{" "}
+            个当前已不再使用的处理文件，预计释放{" "}
+            <strong>{formatBytes(storage.reclaimable.bytes)}</strong>。
+          </p>
+          <p className="hint">
+            当前章节图片、已选择封面和原始漫画文件都会保留。清理开始后请等待完成。
+          </p>
+          {storageError && (
+            <p className="error" role="alert">
+              {storageError}
+            </p>
+          )}
+          <div className="confirm-actions">
+            <button
+              className="soft-button"
+              disabled={cleaning}
+              onClick={() => setCleanupOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              className="danger-button"
+              disabled={cleaning || active}
+              onClick={() => {
+                setCleaning(true);
+                setStorageError("");
+                void api<StorageCleanupResult>(
+                  "/storage/cleanup",
+                  json("POST", {}),
+                )
+                  .then((result) => {
+                    setStorage(result.analysis);
+                    setCleanupResult(result.deleted);
+                    setCleanupOpen(false);
+                  })
+                  .catch((error: Error) => setStorageError(error.message))
+                  .finally(() => setCleaning(false));
+              }}
+            >
+              <Trash2 size={16} />
+              {cleaning ? "清理中…" : "确认清理"}
+            </button>
+          </div>
         </Sheet>
       )}
     </>

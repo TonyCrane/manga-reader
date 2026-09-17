@@ -55,7 +55,10 @@ db.exec(`
     id TEXT PRIMARY KEY,
     path TEXT UNIQUE NOT NULL,
     mode TEXT NOT NULL,
-    last_scan TEXT
+    last_scan TEXT,
+    image_count INTEGER NOT NULL DEFAULT 0 CHECK (image_count >= 0),
+    image_bytes INTEGER NOT NULL DEFAULT 0 CHECK (image_bytes >= 0),
+    stats_updated TEXT
   );
 
   CREATE TABLE IF NOT EXISTS manga (
@@ -224,6 +227,26 @@ const mangaColumns = new Set(
     (column) => column.name,
   ),
 );
+
+const sourceColumns = new Set(
+  (db.prepare("PRAGMA table_info(sources)").all() as { name: string }[]).map(
+    (column) => column.name,
+  ),
+);
+if (!sourceColumns.has("image_count")) {
+  db.exec(
+    "ALTER TABLE sources ADD COLUMN image_count INTEGER NOT NULL DEFAULT 0 CHECK (image_count >= 0)",
+  );
+}
+if (!sourceColumns.has("image_bytes")) {
+  db.exec(
+    "ALTER TABLE sources ADD COLUMN image_bytes INTEGER NOT NULL DEFAULT 0 CHECK (image_bytes >= 0)",
+  );
+}
+if (!sourceColumns.has("stats_updated")) {
+  db.exec("ALTER TABLE sources ADD COLUMN stats_updated TEXT");
+}
+
 if (!mangaColumns.has("title_zh")) {
   db.exec("ALTER TABLE manga ADD COLUMN title_zh TEXT NOT NULL DEFAULT ''");
 }

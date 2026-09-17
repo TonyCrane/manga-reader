@@ -37,12 +37,20 @@ import {
   startImport,
   relativePath,
   upgradeImages,
+  upgradeSourceStats,
 } from "./importer";
 import { errorMessage, log } from "./log";
 
 import { translationRoutes } from "./translation";
 import { versionInfo } from "./version";
 import { getAppConfig, setAppName } from "./settings";
+import {
+  analyzeStorage,
+  beginStorageWrite,
+  cleanupStorage,
+  coverThumbnailFile,
+  isStorageMaintenanceBusy,
+} from "./storage";
 
 const app = express();
 const mangaIdSchema = z.string().regex(/^[a-f0-9]{24}$/, "无效的漫画 ID");
@@ -97,35 +105,35 @@ function removeMangaFiles(manga: MangaForDeletion) {
 }
 
 async function smallCover(mangaId: string, source: string) {
-  const signature = crypto
-    .createHash("sha256")
-    .update(`v1:480x640:${source}`)
-    .digest("hex")
-    .slice(0, 24);
-  const directory = path.join("covers", mangaId);
-  const name = path.join(directory, `thumbnail-${signature}.webp`);
+  const name = coverThumbnailFile(mangaId, source);
+  const directory = path.dirname(name);
   const output = path.join(processedDir, name);
   if (!fs.existsSync(output) || fs.statSync(output).size === 0) {
-    fs.mkdirSync(path.join(processedDir, directory), { recursive: true });
-    const pending = path.join(
-      processedDir,
-      directory,
-      `pending-${crypto.randomUUID()}.webp`,
-    );
+    const finishWrite = beginStorageWrite();
     try {
-      await sharp(path.join(processedDir, source))
-        .resize({
-          width: 480,
-          height: 640,
-          fit: "cover",
-          withoutEnlargement: true,
-        })
-        .webp({ quality: 82, effort: 4 })
-        .toFile(pending);
-      fs.renameSync(pending, output);
-    } catch (error) {
-      fs.rmSync(pending, { force: true });
-      throw error;
+      fs.mkdirSync(path.join(processedDir, directory), { recursive: true });
+      const pending = path.join(
+        processedDir,
+        directory,
+        `pending-${crypto.randomUUID()}.webp`,
+      );
+      try {
+        await sharp(path.join(processedDir, source))
+          .resize({
+            width: 480,
+            height: 640,
+            fit: "cover",
+            withoutEnlargement: true,
+          })
+          .webp({ quality: 82, effort: 4 })
+          .toFile(pending);
+        fs.renameSync(pending, output);
+      } catch (error) {
+        fs.rmSync(pending, { force: true });
+        throw error;
+      }
+    } finally {
+      finishWrite();
     }
   }
   return name;
@@ -204,6 +212,19 @@ app.put("/api/system-settings", requireAdmin, (req, res) => {
 app.get("/api/version", (_req, res) => res.json(versionInfo));
 app.use("/api/users", userRoutes);
 app.use(["/api/sources", "/api/jobs", "/api/directories"], requireAdmin);
+app.use("/api/storage", requireAdmin);
+app.get("/api/storage", async (_req, res) => {
+  if (isImporterBusy() || isStorageMaintenanceBusy()) {
+    return res.status(409).json({ error: "请等待当前图片任务完成" });
+  }
+  res.json(await analyzeStorage());
+});
+app.post("/api/storage/cleanup", async (_req, res) => {
+  if (isImporterBusy() || isStorageMaintenanceBusy()) {
+    return res.status(409).json({ error: "请等待当前图片任务完成" });
+  }
+  res.json(await cleanupStorage());
+});
 app.use("/api/manga/:id", (req, res, next) => {
   if (!canRead(res.locals.user.id, String(req.params.id))) {
     res.status(404).json({ error: "漫画不存在或无权访问" });
@@ -214,6 +235,49 @@ app.use("/api/manga/:id", (req, res, next) => {
     return;
   }
   next();
+});
+app.get("/api/chapters/:id/pages/:pageId/original", async (req, res) => {
+  if (
+    !mangaIdSchema.safeParse(req.params.id).success ||
+    !mangaIdSchema.safeParse(req.params.pageId).success
+  ) {
+    return res.status(404).end();
+  }
+  const chapter = db
+    .prepare("SELECT manga_id,path,pages FROM chapters WHERE id=?")
+    .get(req.params.id) as
+    { manga_id: string; path: string; pages: string } | undefined;
+  if (!chapter || !canRead(res.locals.user.id, chapter.manga_id)) {
+    return res.status(404).end();
+  }
+  const page = (
+    JSON.parse(chapter.pages) as {
+      id: string;
+      original: string | null;
+      source: string;
+    }[]
+  ).find((item) => item.id === req.params.pageId);
+  if (
+    !page ||
+    page.original ||
+    !page.source ||
+    path.basename(page.source) !== page.source
+  ) {
+    return res.status(404).end();
+  }
+  try {
+    const directory = await safeDirectory(chapter.path);
+    const source = await fs.promises.realpath(
+      path.join(directory, page.source),
+    );
+    if (path.dirname(source) !== directory) {
+      return res.status(404).end();
+    }
+    res.setHeader("Cache-Control", "private, no-store");
+    res.sendFile(source, { dotfiles: "allow" });
+  } catch {
+    res.status(404).end();
+  }
 });
 app.use("/api/chapters/:id", requireAdmin, (req, res, next) => {
   const chapter = db
@@ -411,37 +475,42 @@ app.post("/api/manga/:id/cover", upload.single("cover"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "请选择图片" });
   }
-  const name = `covers/${req.params.id}/${crypto.randomUUID()}.webp`;
-  fs.mkdirSync(path.dirname(path.join(processedDir, name)), {
-    recursive: true,
-  });
-  await sharp(req.file.buffer)
-    .rotate()
-    .resize({ width: 1000, withoutEnlargement: true })
-    .webp({ quality: 88 })
-    .toFile(path.join(processedDir, name));
-  if (!detail(String(req.params.id))) {
-    fs.rmSync(path.join(processedDir, name), { force: true });
-    return res.status(404).json({ error: "漫画已删除" });
+  const finishWrite = beginStorageWrite();
+  try {
+    const name = `covers/${req.params.id}/${crypto.randomUUID()}.webp`;
+    fs.mkdirSync(path.dirname(path.join(processedDir, name)), {
+      recursive: true,
+    });
+    await sharp(req.file.buffer)
+      .rotate()
+      .resize({ width: 1000, withoutEnlargement: true })
+      .webp({ quality: 88 })
+      .toFile(path.join(processedDir, name));
+    if (!detail(String(req.params.id))) {
+      fs.rmSync(path.join(processedDir, name), { force: true });
+      return res.status(404).json({ error: "漫画已删除" });
+    }
+    if (
+      !canRead(res.locals.user.id, String(req.params.id)) ||
+      !(
+        db
+          .prepare("SELECT is_admin FROM users WHERE id=?")
+          .get(res.locals.user.id) as { is_admin: number }
+      )?.is_admin
+    ) {
+      fs.rmSync(path.join(processedDir, name), { force: true });
+      res.status(403).json({ error: "权限已变更" });
+      return;
+    }
+    db.prepare("INSERT OR REPLACE INTO media_assets VALUES(?,?)").run(
+      name,
+      req.params.id,
+    );
+    db.prepare("UPDATE manga SET cover=? WHERE id=?").run(name, req.params.id);
+    res.json({ ok: true });
+  } finally {
+    finishWrite();
   }
-  if (
-    !canRead(res.locals.user.id, String(req.params.id)) ||
-    !(
-      db
-        .prepare("SELECT is_admin FROM users WHERE id=?")
-        .get(res.locals.user.id) as { is_admin: number }
-    )?.is_admin
-  ) {
-    fs.rmSync(path.join(processedDir, name), { force: true });
-    res.status(403).json({ error: "权限已变更" });
-    return;
-  }
-  db.prepare("INSERT OR REPLACE INTO media_assets VALUES(?,?)").run(
-    name,
-    req.params.id,
-  );
-  db.prepare("UPDATE manga SET cover=? WHERE id=?").run(name, req.params.id);
-  res.json({ ok: true });
 });
 
 app.get("/api/manga/:id/cover", async (req, res) => {
@@ -501,7 +570,16 @@ app.post("/api/sources", async (req, res) => {
     mode: body.mode,
     userCount: new Set(body.userIds).size,
   });
-  res.status(201).json({ id, path: sourcePath, mode: body.mode });
+  res.status(201).json({
+    id,
+    path: sourcePath,
+    mode: body.mode,
+    last_scan: null,
+    image_count: 0,
+    image_bytes: 0,
+    stats_updated: null,
+    userIds: [...new Set(body.userIds)],
+  });
 });
 
 app.patch("/api/sources/:id", async (req, res) => {
@@ -748,11 +826,16 @@ app.use(
   },
 );
 
-void upgradeImages().catch((error) => {
-  log.error("images.upgrade.failed", "图片升级启动失败", {
-    error: errorMessage(error),
-  });
-});
+void (async () => {
+  try {
+    await upgradeImages();
+  } catch (error) {
+    log.error("images.upgrade.failed", "图片升级启动失败", {
+      error: errorMessage(error),
+    });
+  }
+  await upgradeSourceStats();
+})();
 
 app.listen(
   Number(process.env.PORT || 3000),

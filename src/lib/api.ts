@@ -42,3 +42,14 @@ export const json = (method: string, body: unknown) => ({
 
 export const media = (file: string) =>
   `/media/${file.split("/").map(encodeURIComponent).join("/")}`;
+
+export function pageMedia(
+  chapterId: string,
+  page: { id: string; original: string | null; optimized: string },
+  quality: "original" | "optimized",
+) {
+  if (quality === "optimized" || page.original) {
+    return media(quality === "optimized" ? page.optimized : page.original!);
+  }
+  return `/api/chapters/${encodeURIComponent(chapterId)}/pages/${encodeURIComponent(page.id)}/original`;
+}

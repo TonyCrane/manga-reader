@@ -1,6 +1,6 @@
 export interface Page {
   id: string;
-  original: string;
+  original: string | null;
   optimized: string;
   thumbnail?: string;
   width: number;
@@ -42,6 +42,9 @@ export interface Source {
   path: string;
   mode: string;
   last_scan: string | null;
+  image_count: number;
+  image_bytes: number;
+  stats_updated: string | null;
 }
 
 export interface Job {
@@ -77,4 +80,28 @@ export type VersionInfo = {
 
 export type AppConfig = {
   appName: string;
+};
+
+export type StorageBucket = {
+  files: number;
+  bytes: number;
+};
+
+export type StorageAnalysis = {
+  scannedAt: string;
+  total: StorageBucket;
+  used: StorageBucket;
+  reclaimable: StorageBucket;
+  databaseStale: StorageBucket;
+  orphaned: StorageBucket;
+  missingFiles: number;
+  kinds: Record<
+    "original" | "optimized" | "preview" | "cover" | "other",
+    { used: StorageBucket; reclaimable: StorageBucket }
+  >;
+};
+
+export type StorageCleanupResult = {
+  deleted: StorageBucket;
+  analysis: StorageAnalysis;
 };
