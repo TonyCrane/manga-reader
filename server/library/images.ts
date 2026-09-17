@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import sharp from "sharp";
-import { processedDir } from "./db";
-import { imageConcurrency, mapConcurrent } from "./concurrency";
+import { imageConcurrency, mapConcurrent } from "../shared/concurrency";
+import { processedDir } from "./database";
 
 sharp.concurrency(1);
 export const hash = (value: string) =>

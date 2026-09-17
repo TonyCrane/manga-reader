@@ -1,5 +1,5 @@
 import type { RequestHandler } from "express";
-import { db } from "./db";
+import { db } from "../library/database";
 
 const readableManga = db.prepare(`
   SELECT 1

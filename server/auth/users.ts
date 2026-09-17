@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { db } from "./db";
+import { db } from "../library/database";
 import { requireAdmin } from "./access";
 import {
   emailSchema,
@@ -9,7 +9,7 @@ import {
   hashPassword,
   publicUser,
   type UserRow,
-} from "./auth";
+} from "./session";
 
 export const userRoutes = Router();
 userRoutes.use(requireAdmin);

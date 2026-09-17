@@ -9,7 +9,7 @@ import {
 } from "node:crypto";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { db } from "./db";
+import { db } from "../library/database";
 
 const derive = promisify(scrypt);
 export const passwordSchema = z

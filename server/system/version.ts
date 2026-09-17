@@ -13,7 +13,7 @@ function git(...args: string[]) {
 }
 
 // Docker writes immutable metadata into the image; local runs read the checkout.
-const metadataPath = new URL("../build-info.json", import.meta.url);
+const metadataPath = new URL("../../build-info.json", import.meta.url);
 export const versionInfo = fs.existsSync(metadataPath)
   ? JSON.parse(fs.readFileSync(metadataPath, "utf8"))
   : {

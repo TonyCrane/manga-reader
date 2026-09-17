@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { mapConcurrent } from "./concurrency";
-import { db, processedDir } from "./db";
-import { log } from "./log";
+import { mapConcurrent } from "../shared/concurrency";
+import { log } from "../shared/log";
+import { db, processedDir } from "./database";
 
 type StorageBucket = {
   files: number;

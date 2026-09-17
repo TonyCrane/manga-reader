@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
-import { log } from "./log";
+import { log } from "../shared/log";
 
 export const dataDir = path.resolve(process.env.DATA_DIR || ".data");
 

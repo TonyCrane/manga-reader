@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { mapConcurrent } from "./concurrency";
+import { mapConcurrent } from "../shared/concurrency";
 import {
   chapterFingerprint,
   chapterProcessingKey,
@@ -10,8 +10,8 @@ import {
   outputsExist,
   processChapter,
 } from "./images";
-import { db, mangaDir } from "./db";
-import { errorMessage, log } from "./log";
+import { errorMessage, log } from "../shared/log";
+import { db, mangaDir } from "./database";
 import { isStorageMaintenanceBusy } from "./storage";
 
 const binaryCompare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);

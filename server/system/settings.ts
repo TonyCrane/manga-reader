@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db } from "../library/database";
 
 export const defaultAppName = "manga-reader";
 

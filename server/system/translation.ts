@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { db } from "./db";
+import { db } from "../library/database";
 
 export const translationRoutes = Router();
 const settingsSchema = z

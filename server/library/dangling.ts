@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
-import { mapConcurrent } from "./concurrency";
-import { db, mangaDir } from "./db";
+import { mapConcurrent } from "../shared/concurrency";
+import { db, mangaDir } from "./database";
 
 const imageExtension = /\.(jpe?g|png|webp|avif|tiff?|gif)$/i;
 const naturalOrder = new Intl.Collator("en", { numeric: true });

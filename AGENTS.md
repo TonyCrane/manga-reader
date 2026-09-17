@@ -23,10 +23,11 @@
 - `src/pages/`：书架、详情和设置页面。
 - `src/components/`：表单、弹层和通用交互组件。
 - `src/reader/`：阅读状态、分页、手势和阅读器样式。
-- `server/index.ts`：服务入口与主要 API。
-- `server/auth.ts`、`server/users.ts`、`server/access.ts`：认证、用户与权限。
-- `server/importer.ts`、`server/images.ts`：扫描、导入和图片处理。
-- `server/db.ts`：SQLite schema 与查询辅助。
+- `server/index.ts`：服务启动入口；`server/app.ts`：中间件与路由组装。
+- `server/routes/`：按资源划分的 HTTP API。
+- `server/auth/`：认证、用户与权限。
+- `server/library/`：SQLite、扫描导入、图片和派生文件管理。
+- `server/system/`、`server/shared/`：系统设置及通用基础模块。
 
 ## 产品边界
 
