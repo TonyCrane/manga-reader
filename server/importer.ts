@@ -14,12 +14,13 @@ import { db, mangaDir } from "./db";
 import { errorMessage, log } from "./log";
 import { isStorageMaintenanceBusy } from "./storage";
 
-const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const binaryCompare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 // Numeric collation also handles names such as 2_page.jpg and page10.jpg.
-const imageOrder = new Intl.Collator("en", { numeric: true });
-const compareImages = (a: string, b: string) =>
-  imageOrder.compare(path.basename(a), path.basename(b)) || compare(a, b);
+const naturalOrder = new Intl.Collator("en", { numeric: true });
+const compareNames = (a: string, b: string) =>
+  naturalOrder.compare(path.basename(a), path.basename(b)) ||
+  binaryCompare(a, b);
 
 const extensions = /\.(jpe?g|png|webp|avif|tiff?|gif)$/i;
 
@@ -42,7 +43,7 @@ async function dirs(p: string, includeHidden = false) {
         entry.isDirectory() && (includeHidden || !entry.name.startsWith(".")),
     )
     .map((entry) => path.join(p, entry.name))
-    .sort(compare);
+    .sort(compareNames);
 }
 
 async function files(p: string) {
@@ -50,7 +51,7 @@ async function files(p: string) {
   return entries
     .filter((e) => e.isFile() && extensions.test(e.name))
     .map((e) => path.join(p, e.name))
-    .sort(compareImages);
+    .sort(compareNames);
 }
 
 async function sourceImageStats(root: string) {
@@ -428,7 +429,7 @@ async function run(source: Source, id: string, mode: RefreshMode) {
         id: string;
         path: string;
       }[]
-    ).sort((a, b) => compare(a.path, b.path));
+    ).sort((a, b) => compareNames(a.path, b.path));
     db.transaction(() => {
       for (const [index, chapter] of ordered.entries()) {
         db.prepare("UPDATE chapters SET position=? WHERE id=?").run(
