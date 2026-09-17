@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   ArrowDown,
@@ -28,15 +28,17 @@ type DeleteProgress = {
   title: string;
 };
 
-type BrowserFilters = {
+type LibraryBrowserState = {
   tags: string[];
   author: string;
   untagged: boolean;
+  search: string;
+  scrollY?: number;
 };
 
 type TitleLanguage = "ja" | "zh";
 
-const browserFilters = new Map<string, BrowserFilters>();
+const browserStates = new Map<string, LibraryBrowserState>();
 
 function libraryTitle(manga: Manga, language: TitleLanguage) {
   return language === "zh" && manga.title_zh ? manga.title_zh : manga.title;
@@ -49,6 +51,7 @@ function LibraryCard({
   selected,
   priority,
   onSelect,
+  onOpen,
 }: {
   manga: Manga;
   title: string;
@@ -56,6 +59,7 @@ function LibraryCard({
   selected: boolean;
   priority: boolean;
   onSelect: () => void;
+  onOpen: () => void;
 }) {
   const content = (
     <>
@@ -107,7 +111,7 @@ function LibraryCard({
     );
   }
   return (
-    <Link className="manga-card" to={`/manga/${manga.id}`}>
+    <Link className="manga-card" to={`/manga/${manga.id}`} onClick={onOpen}>
       {content}
     </Link>
   );
@@ -115,19 +119,22 @@ function LibraryCard({
 
 export function Library() {
   const { user, setUser } = useAccount();
-  const rememberedFilters = browserFilters.get(user.id);
+  const rememberedState = browserStates.get(user.id);
   const [searchParams, setSearchParams] = useSearchParams();
+  const restoreScrollY = useRef(
+    searchParams.has("tag") || searchParams.has("author")
+      ? null
+      : (rememberedState?.scrollY ?? null),
+  );
   const [manga, setManga] = useState<Manga[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(rememberedState?.search || "");
   const [selectedTags, setSelectedTags] = useState<string[]>(
-    rememberedFilters?.tags || [],
+    rememberedState?.tags || [],
   );
-  const [author, setAuthor] = useState(rememberedFilters?.author || "");
-  const [untagged, setUntagged] = useState(
-    rememberedFilters?.untagged || false,
-  );
+  const [author, setAuthor] = useState(rememberedState?.author || "");
+  const [untagged, setUntagged] = useState(rememberedState?.untagged || false);
   const [titleLanguage, setTitleLanguage] = useState<TitleLanguage>(
     user.titleLanguage,
   );
@@ -146,6 +153,18 @@ export function Library() {
       .catch((e) => setError(e.message))
       .finally(() => setLoaded(true));
   }, []);
+  useLayoutEffect(() => {
+    if (!loaded || restoreScrollY.current === null) {
+      return;
+    }
+    const scrollY = restoreScrollY.current;
+    restoreScrollY.current = null;
+    window.scrollTo(0, scrollY);
+    const current = browserStates.get(user.id);
+    if (current?.scrollY === scrollY) {
+      browserStates.set(user.id, { ...current, scrollY: undefined });
+    }
+  }, [loaded, user.id]);
   useEffect(() => {
     const incomingTags = [...new Set(searchParams.getAll("tag"))];
     const incomingAuthor = searchParams.get("author") || "";
@@ -155,10 +174,12 @@ export function Library() {
     setSelectedTags(incomingTags);
     setAuthor(incomingAuthor);
     setUntagged(false);
-    browserFilters.set(user.id, {
+    setSearch("");
+    browserStates.set(user.id, {
       tags: incomingTags,
       author: incomingAuthor,
       untagged: false,
+      search: "",
     });
     const next = new URLSearchParams(searchParams);
     next.delete("tag");
@@ -268,23 +289,30 @@ export function Library() {
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((item) => selectedIds.has(item.id));
 
+  function saveBrowserState(overrides: Partial<LibraryBrowserState> = {}) {
+    browserStates.set(user.id, {
+      tags: selectedTags,
+      author,
+      untagged,
+      search,
+      ...overrides,
+    });
+  }
+
+  function changeSearch(value: string) {
+    setSearch(value);
+    saveBrowserState({ search: value });
+  }
+
   function changeSelectedTags(value: string[]) {
     setSelectedTags(value);
     setUntagged(false);
-    browserFilters.set(user.id, {
-      tags: value,
-      author,
-      untagged: false,
-    });
+    saveBrowserState({ tags: value, untagged: false });
   }
 
   function changeAuthor(value: string) {
     setAuthor(value);
-    browserFilters.set(user.id, {
-      tags: selectedTags,
-      author: value,
-      untagged,
-    });
+    saveBrowserState({ author: value });
   }
 
   function toggleUntagged() {
@@ -292,11 +320,7 @@ export function Library() {
     const tags = next ? [] : selectedTags;
     setUntagged(next);
     setSelectedTags(tags);
-    browserFilters.set(user.id, {
-      tags,
-      author,
-      untagged: next,
-    });
+    saveBrowserState({ tags, untagged: next });
   }
 
   function toggleTitleLanguage() {
@@ -445,13 +469,13 @@ export function Library() {
             aria-label="搜索漫画"
             placeholder="搜索漫画名称"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => changeSearch(e.target.value)}
           />
           {search && (
             <button
               className="icon"
               aria-label="清除搜索"
-              onClick={() => setSearch("")}
+              onClick={() => changeSearch("")}
             >
               <X size={16} />
             </button>
@@ -564,6 +588,7 @@ export function Library() {
               selected={selectedIds.has(item.id)}
               priority={index < 6}
               onSelect={() => toggleSelected(item.id)}
+              onOpen={() => saveBrowserState({ scrollY: window.scrollY })}
             />
           ))}
         </div>
