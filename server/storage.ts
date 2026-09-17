@@ -229,6 +229,20 @@ let activeWriters = 0;
 
 export const isStorageMaintenanceBusy = () => maintenanceBusy;
 
+export function beginStorageMaintenance() {
+  if (maintenanceBusy || activeWriters > 0) {
+    throw Error("有图片正在写入，请稍后再试");
+  }
+  maintenanceBusy = true;
+  let finished = false;
+  return () => {
+    if (!finished) {
+      finished = true;
+      maintenanceBusy = false;
+    }
+  };
+}
+
 export function beginStorageWrite() {
   if (maintenanceBusy) {
     throw Error("空间清理正在进行，请稍后再试");
@@ -295,10 +309,7 @@ function cleanedAnalysis(before: StorageAnalysis): StorageAnalysis {
 }
 
 export async function cleanupStorage() {
-  if (maintenanceBusy || activeWriters > 0) {
-    throw Error("有图片正在写入，请稍后再试");
-  }
-  maintenanceBusy = true;
+  const finishMaintenance = beginStorageMaintenance();
   try {
     const scan = await scanStorage();
     const removable = scan.files.filter((file) => !file.used);
@@ -325,6 +336,6 @@ export async function cleanupStorage() {
       analysis: cleanedAnalysis(scan.analysis),
     };
   } finally {
-    maintenanceBusy = false;
+    finishMaintenance();
   }
 }

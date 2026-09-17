@@ -8,6 +8,7 @@ import {
   Trash2,
   Settings2,
   HardDrive,
+  Unlink,
 } from "lucide-react";
 import { api, json } from "../lib/api";
 import type {
@@ -17,6 +18,9 @@ import type {
   StorageAnalysis,
   StorageBucket,
   StorageCleanupResult,
+  DanglingAnalysis,
+  DanglingDeleteResult,
+  DanglingReason,
 } from "../types";
 import { useAccount } from "../context/AccountContext";
 import { UserManagement } from "../components/UserManagement";
@@ -38,6 +42,13 @@ const storageKinds: [keyof StorageAnalysis["kinds"], string][] = [
   ["cover", "封面与缩略图"],
   ["other", "其他文件"],
 ];
+
+const danglingReasons: Record<DanglingReason, string> = {
+  manga_missing: "所属漫画目录不存在",
+  missing_directory: "目录不存在",
+  no_images: "目录中已无图片",
+  structure_changed: "已不属于当前章节结构",
+};
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) {
@@ -129,6 +140,21 @@ export function SystemSettings({
   const [cleanupResult, setCleanupResult] = useState<StorageBucket | null>(
     null,
   );
+  const [dangling, setDangling] = useState<DanglingAnalysis | null>(null);
+  const [danglingLoading, setDanglingLoading] = useState(false);
+  const [danglingError, setDanglingError] = useState("");
+  const [selectedDanglingManga, setSelectedDanglingManga] = useState(
+    () => new Set<string>(),
+  );
+  const [selectedDanglingChapters, setSelectedDanglingChapters] = useState(
+    () => new Set<string>(),
+  );
+  const [danglingDeleteOpen, setDanglingDeleteOpen] = useState(false);
+  const [deletingDangling, setDeletingDangling] = useState(false);
+  const [danglingDeleted, setDanglingDeleted] = useState<{
+    manga: number;
+    chapters: number;
+  } | null>(null);
   const observedJobs = useRef(new Set<string>());
   async function refresh(id: string, mode: "all" | "new" = "all") {
     const job = await api<{ id: string }>(
@@ -193,13 +219,54 @@ export function SystemSettings({
       setStorageLoading(false);
     }
   }
+  async function loadDangling() {
+    setDanglingLoading(true);
+    setDanglingError("");
+    try {
+      const analysis = await api<DanglingAnalysis>("/dangling");
+      setDangling(analysis);
+      const mangaIds = new Set(analysis.manga.map((manga) => manga.id));
+      const chapterIds = new Set(
+        analysis.chapters.map((chapter) => chapter.id),
+      );
+      setSelectedDanglingManga(
+        (current) => new Set([...current].filter((id) => mangaIds.has(id))),
+      );
+      setSelectedDanglingChapters(
+        (current) => new Set([...current].filter((id) => chapterIds.has(id))),
+      );
+    } catch (error) {
+      setDanglingError((error as Error).message);
+    } finally {
+      setDanglingLoading(false);
+    }
+  }
   useEffect(() => {
     void load();
     void loadStorage();
+    void loadDangling();
     const timer = setInterval(load, 1500);
     return () => clearInterval(timer);
   }, []);
   const active = jobs.some((j) => j.status === "running");
+  const danglingMangaIds = new Set(
+    dangling?.manga.map((manga) => manga.id) || [],
+  );
+  const independentlySelectedChapters = [...selectedDanglingChapters].filter(
+    (id) => {
+      const chapter = dangling?.chapters.find((item) => item.id === id);
+      return chapter && !selectedDanglingManga.has(chapter.mangaId);
+    },
+  );
+  const danglingSelectionCount =
+    selectedDanglingManga.size + independentlySelectedChapters.length;
+  const allDanglingSelected = Boolean(
+    dangling &&
+    dangling.manga.every((manga) => selectedDanglingManga.has(manga.id)) &&
+    dangling.chapters
+      .filter((chapter) => !danglingMangaIds.has(chapter.mangaId))
+      .every((chapter) => selectedDanglingChapters.has(chapter.id)),
+  );
   async function perform(fn: () => Promise<unknown>) {
     setError("");
     setBusy(true);
@@ -218,6 +285,47 @@ export function SystemSettings({
     } catch (e) {
       setError((e as Error).message);
     }
+  }
+  function toggleDanglingManga(id: string, selected: boolean) {
+    setSelectedDanglingManga((current) => {
+      const next = new Set(current);
+      selected ? next.add(id) : next.delete(id);
+      return next;
+    });
+    if (selected) {
+      setSelectedDanglingChapters((current) => {
+        const next = new Set(current);
+        for (const chapter of dangling?.chapters || []) {
+          if (chapter.mangaId === id) {
+            next.delete(chapter.id);
+          }
+        }
+        return next;
+      });
+    }
+  }
+  function toggleDanglingChapter(id: string, selected: boolean) {
+    setSelectedDanglingChapters((current) => {
+      const next = new Set(current);
+      selected ? next.add(id) : next.delete(id);
+      return next;
+    });
+  }
+  function toggleAllDangling() {
+    if (!dangling || allDanglingSelected) {
+      setSelectedDanglingManga(new Set());
+      setSelectedDanglingChapters(new Set());
+      return;
+    }
+    const mangaIds = new Set(dangling.manga.map((manga) => manga.id));
+    setSelectedDanglingManga(mangaIds);
+    setSelectedDanglingChapters(
+      new Set(
+        dangling.chapters
+          .filter((chapter) => !mangaIds.has(chapter.mangaId))
+          .map((chapter) => chapter.id),
+      ),
+    );
   }
   return (
     <>
@@ -404,6 +512,151 @@ export function SystemSettings({
               </div>
             </>
           )}
+        </section>
+        <section className="panel dangling-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>悬垂内容</h2>
+              <p>查找挂载目录中已不存在或不再有效的漫画与章节记录</p>
+            </div>
+            <button
+              className="soft-button"
+              disabled={danglingLoading || deletingDangling || active}
+              onClick={() => void loadDangling()}
+            >
+              <RefreshCw size={16} />
+              {danglingLoading ? "扫描中…" : "重新扫描"}
+            </button>
+          </div>
+          {!dangling && danglingLoading && (
+            <div className="storage-loading" role="status">
+              <Unlink size={26} />
+              正在核对漫画和章节目录…
+            </div>
+          )}
+          {danglingError && (
+            <p className="error" role="alert">
+              {danglingError}
+            </p>
+          )}
+          {dangling &&
+            dangling.manga.length === 0 &&
+            dangling.chapters.length === 0 && (
+              <div className="dangling-empty" role="status">
+                <Unlink size={24} />
+                <div>
+                  <strong>没有发现悬垂内容</strong>
+                  <small>现有漫画和章节记录均能在挂载目录中找到。</small>
+                </div>
+              </div>
+            )}
+          {dangling &&
+            (dangling.manga.length > 0 || dangling.chapters.length > 0) && (
+              <>
+                <div className="dangling-summary">
+                  <p>
+                    发现 <strong>{dangling.manga.length}</strong> 部漫画、
+                    <strong>{dangling.chapters.length}</strong> 个章节
+                  </p>
+                  <button className="soft-button" onClick={toggleAllDangling}>
+                    {allDanglingSelected ? "取消全选" : "全选"}
+                  </button>
+                </div>
+                <div className="dangling-list">
+                  {dangling.manga.length > 0 && (
+                    <div className="dangling-group">
+                      <h3>悬垂漫画</h3>
+                      {dangling.manga.map((manga) => (
+                        <label className="dangling-row" key={manga.id}>
+                          <input
+                            type="checkbox"
+                            checked={selectedDanglingManga.has(manga.id)}
+                            onChange={(event) =>
+                              toggleDanglingManga(
+                                manga.id,
+                                event.target.checked,
+                              )
+                            }
+                          />
+                          <span>
+                            <strong>{manga.title}</strong>
+                            <code>{manga.path}</code>
+                            <small>
+                              {manga.chapterCount.toLocaleString()} 个章节
+                            </small>
+                          </span>
+                          <em>{danglingReasons[manga.reason]}</em>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {dangling.chapters.length > 0 && (
+                    <div className="dangling-group">
+                      <h3>悬垂章节</h3>
+                      {dangling.chapters.map((chapter) => {
+                        const includedByManga = selectedDanglingManga.has(
+                          chapter.mangaId,
+                        );
+                        return (
+                          <label className="dangling-row" key={chapter.id}>
+                            <input
+                              type="checkbox"
+                              checked={
+                                includedByManga ||
+                                selectedDanglingChapters.has(chapter.id)
+                              }
+                              disabled={includedByManga}
+                              onChange={(event) =>
+                                toggleDanglingChapter(
+                                  chapter.id,
+                                  event.target.checked,
+                                )
+                              }
+                            />
+                            <span>
+                              <strong>
+                                {chapter.mangaTitle} / {chapter.title}
+                              </strong>
+                              <code>{chapter.path}</code>
+                              <small>
+                                {includedByManga
+                                  ? "将随漫画一起删除"
+                                  : `${chapter.pageCount.toLocaleString()} 页`}
+                              </small>
+                            </span>
+                            <em>{danglingReasons[chapter.reason]}</em>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                {danglingDeleted && (
+                  <p className="storage-cleaned" role="status">
+                    已删除 {danglingDeleted.manga} 部悬垂漫画和{" "}
+                    {danglingDeleted.chapters} 个悬垂章节。
+                  </p>
+                )}
+                <div className="dangling-actions">
+                  <p className="hint">
+                    删除只会移除平台记录和对应处理图片，不会修改原始漫画目录。
+                  </p>
+                  <button
+                    className="danger-button"
+                    disabled={
+                      danglingSelectionCount === 0 || deletingDangling || active
+                    }
+                    onClick={() => setDanglingDeleteOpen(true)}
+                  >
+                    <Trash2 size={16} />
+                    删除所选
+                    {danglingSelectionCount
+                      ? `（${danglingSelectionCount}）`
+                      : ""}
+                  </button>
+                </div>
+              </>
+            )}
         </section>
         <section className="panel sources-panel">
           <div className="panel-heading">
@@ -769,6 +1022,68 @@ export function SystemSettings({
           >
             取消
           </button>
+        </Sheet>
+      )}
+      {danglingDeleteOpen && dangling && (
+        <Sheet
+          title="删除悬垂内容"
+          onClose={() => setDanglingDeleteOpen(false)}
+        >
+          <p>
+            将删除 {selectedDanglingManga.size} 部漫画和{" "}
+            {independentlySelectedChapters.length}{" "}
+            个独立章节的平台记录及处理图片。
+          </p>
+          <p className="hint">
+            选择整部漫画时，其章节会一并删除。挂载目录中的原始文件不会被修改；删除前系统会重新确认这些内容仍处于悬垂状态。
+          </p>
+          {danglingError && (
+            <p className="error" role="alert">
+              {danglingError}
+            </p>
+          )}
+          <div className="confirm-actions">
+            <button
+              className="soft-button"
+              disabled={deletingDangling}
+              onClick={() => setDanglingDeleteOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              className="danger-button"
+              disabled={
+                deletingDangling || active || danglingSelectionCount === 0
+              }
+              onClick={() => {
+                setDeletingDangling(true);
+                setDanglingError("");
+                void api<DanglingDeleteResult>(
+                  "/dangling",
+                  json("DELETE", {
+                    mangaIds: [...selectedDanglingManga],
+                    chapterIds: independentlySelectedChapters,
+                  }),
+                )
+                  .then((result) => {
+                    setDangling(result.analysis);
+                    setDanglingDeleted({
+                      manga: result.deletedManga,
+                      chapters: result.deletedChapters,
+                    });
+                    setSelectedDanglingManga(new Set());
+                    setSelectedDanglingChapters(new Set());
+                    setDanglingDeleteOpen(false);
+                    void loadStorage();
+                  })
+                  .catch((error: Error) => setDanglingError(error.message))
+                  .finally(() => setDeletingDangling(false));
+              }}
+            >
+              <Trash2 size={16} />
+              {deletingDangling ? "删除中…" : "确认删除"}
+            </button>
+          </div>
         </Sheet>
       )}
       {cleanupOpen && storage && (

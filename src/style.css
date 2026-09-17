@@ -584,7 +584,8 @@ a svg {
 }
 .sources-panel,
 .account-panel,
-.storage-panel {
+.storage-panel,
+.dangling-panel {
   grid-column: 1/-1;
 }
 .storage-loading {
@@ -666,6 +667,115 @@ a svg {
   color: var(--accent);
   background: var(--accent-soft);
   font-size: 12px;
+}
+.dangling-empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 11px;
+  color: var(--muted);
+  background: var(--soft);
+}
+.dangling-empty > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.dangling-empty strong {
+  color: var(--text);
+  font-size: 13px;
+}
+.dangling-empty small {
+  font-size: 11px;
+}
+.dangling-summary,
+.dangling-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.dangling-summary {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.dangling-summary p,
+.dangling-actions .hint {
+  margin: 0;
+}
+.dangling-summary p {
+  color: var(--muted);
+  font-size: 12px;
+}
+.dangling-summary p strong {
+  color: var(--text);
+}
+.dangling-list {
+  max-height: 480px;
+  overflow: auto;
+  padding-bottom: 4px;
+}
+.dangling-group h3 {
+  margin: 18px 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.dangling-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.dangling-row > input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+}
+.dangling-row > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+.dangling-row strong {
+  font-size: 12px;
+}
+.dangling-row code,
+.dangling-row small {
+  color: var(--muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.dangling-row > em {
+  padding: 4px 7px;
+  border-radius: 5px;
+  color: #ce5252;
+  background: #c84c4c0d;
+  font-size: 10px;
+  font-style: normal;
+  white-space: nowrap;
+}
+.dangling-row:has(input:checked) {
+  border-color: #168bd255;
+  background: var(--accent-soft);
+}
+.dangling-row:has(input:disabled) {
+  cursor: default;
+}
+.dangling-actions {
+  align-items: flex-end;
+  margin-top: 18px;
+}
+.dangling-actions .danger-button {
+  flex-shrink: 0;
+  margin: 0;
 }
 .folder-icon {
   display: inline-flex;
@@ -1271,6 +1381,22 @@ form h3 {
   .storage-actions .danger-button {
     width: 100%;
   }
+  .dangling-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 9px;
+  }
+  .dangling-row > em {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .dangling-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .dangling-actions .danger-button {
+    width: 100%;
+  }
   .account-panel {
     gap: 15px;
   }
@@ -1681,7 +1807,8 @@ form h3 {
   font-size: 13px;
 }
 .admin-checkbox input,
-.visibility-picker input {
+.visibility-picker input,
+.dangling-row > input {
   width: 17px;
   height: 17px;
   margin: 0;
@@ -1877,7 +2004,8 @@ form > .admin-checkbox {
   margin: 8px 0 16px;
 }
 .admin-checkbox input,
-.visibility-picker input {
+.visibility-picker input,
+.dangling-row > input {
   appearance: none;
   padding: 0;
   border: 1px solid var(--muted);
@@ -1886,14 +2014,16 @@ form > .admin-checkbox {
   cursor: pointer;
 }
 .admin-checkbox input:checked,
-.visibility-picker input:checked {
+.visibility-picker input:checked,
+.dangling-row > input:checked {
   border-color: #168bd2;
   background: #168bd2
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m3.5 8 3 3 6-6' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
     center / 16px no-repeat;
 }
 .admin-checkbox input:disabled,
-.visibility-picker input:disabled {
+.visibility-picker input:disabled,
+.dangling-row > input:disabled {
   opacity: 0.5;
   cursor: default;
 }

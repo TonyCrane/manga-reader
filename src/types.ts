@@ -105,3 +105,36 @@ export type StorageCleanupResult = {
   deleted: StorageBucket;
   analysis: StorageAnalysis;
 };
+
+export type DanglingReason =
+  "manga_missing" | "missing_directory" | "no_images" | "structure_changed";
+
+export type DanglingManga = {
+  id: string;
+  title: string;
+  path: string;
+  chapterCount: number;
+  reason: "missing_directory";
+};
+
+export type DanglingChapter = {
+  id: string;
+  mangaId: string;
+  mangaTitle: string;
+  title: string;
+  path: string;
+  pageCount: number;
+  reason: DanglingReason;
+};
+
+export type DanglingAnalysis = {
+  scannedAt: string;
+  manga: DanglingManga[];
+  chapters: DanglingChapter[];
+};
+
+export type DanglingDeleteResult = {
+  deletedManga: number;
+  deletedChapters: number;
+  analysis: DanglingAnalysis;
+};

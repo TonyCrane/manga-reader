@@ -46,11 +46,13 @@ import { versionInfo } from "./version";
 import { getAppConfig, setAppName } from "./settings";
 import {
   analyzeStorage,
+  beginStorageMaintenance,
   beginStorageWrite,
   cleanupStorage,
   coverThumbnailFile,
   isStorageMaintenanceBusy,
 } from "./storage";
+import { analyzeDangling, type DanglingAnalysis } from "./dangling";
 
 const app = express();
 const mangaIdSchema = z.string().regex(/^[a-f0-9]{24}$/, "无效的漫画 ID");
@@ -102,6 +104,31 @@ function removeMangaFiles(manga: MangaForDeletion) {
   if (manga.cover && /^cover-[a-f0-9-]+\.webp$/.test(manga.cover)) {
     fs.rmSync(path.join(processedDir, manga.cover), { force: true });
   }
+}
+
+function removeChapterFiles(chapterId: string) {
+  if (!mangaIdSchema.safeParse(chapterId).success) {
+    throw Error("无效的章节 ID");
+  }
+  fs.rmSync(path.join(processedDir, chapterId), {
+    recursive: true,
+    force: true,
+  });
+}
+
+function readableDangling(analysis: DanglingAnalysis, userId: string) {
+  const access = new Map<string, boolean>();
+  const readable = (mangaId: string) => {
+    if (!access.has(mangaId)) {
+      access.set(mangaId, canRead(userId, mangaId));
+    }
+    return access.get(mangaId) || false;
+  };
+  return {
+    ...analysis,
+    manga: analysis.manga.filter((manga) => readable(manga.id)),
+    chapters: analysis.chapters.filter((chapter) => readable(chapter.mangaId)),
+  };
 }
 
 async function smallCover(mangaId: string, source: string) {
@@ -213,6 +240,7 @@ app.get("/api/version", (_req, res) => res.json(versionInfo));
 app.use("/api/users", userRoutes);
 app.use(["/api/sources", "/api/jobs", "/api/directories"], requireAdmin);
 app.use("/api/storage", requireAdmin);
+app.use("/api/dangling", requireAdmin);
 app.get("/api/storage", async (_req, res) => {
   if (isImporterBusy() || isStorageMaintenanceBusy()) {
     return res.status(409).json({ error: "请等待当前图片任务完成" });
@@ -224,6 +252,114 @@ app.post("/api/storage/cleanup", async (_req, res) => {
     return res.status(409).json({ error: "请等待当前图片任务完成" });
   }
   res.json(await cleanupStorage());
+});
+app.get("/api/dangling", async (_req, res) => {
+  if (isImporterBusy() || isStorageMaintenanceBusy()) {
+    return res.status(409).json({ error: "请等待当前图片任务完成" });
+  }
+  res.json(readableDangling(await analyzeDangling(), res.locals.user.id));
+});
+app.delete("/api/dangling", async (req, res) => {
+  if (isImporterBusy() || isStorageMaintenanceBusy()) {
+    return res.status(409).json({ error: "请等待当前图片任务完成" });
+  }
+  const input = z
+    .object({
+      mangaIds: z.array(mangaIdSchema).max(500).default([]),
+      chapterIds: z.array(mangaIdSchema).max(500).default([]),
+    })
+    .refine(
+      ({ mangaIds, chapterIds }) => mangaIds.length + chapterIds.length > 0,
+      "请至少选择一项悬垂内容",
+    )
+    .refine(
+      ({ mangaIds, chapterIds }) => mangaIds.length + chapterIds.length <= 500,
+      "一次最多删除 500 项",
+    )
+    .parse(req.body);
+  const mangaIds = [...new Set(input.mangaIds)];
+  const chapterIds = [...new Set(input.chapterIds)];
+  const finishMaintenance = beginStorageMaintenance();
+  try {
+    const current = readableDangling(
+      await analyzeDangling(),
+      res.locals.user.id,
+    );
+    const danglingManga = new Map(
+      current.manga.map((manga) => [manga.id, manga]),
+    );
+    const danglingChapters = new Map(
+      current.chapters.map((chapter) => [chapter.id, chapter]),
+    );
+    if (
+      mangaIds.some((id) => !danglingManga.has(id)) ||
+      chapterIds.some((id) => !danglingChapters.has(id))
+    ) {
+      return res.status(409).json({
+        error: "悬垂内容已经变化，请重新扫描后再删除",
+      });
+    }
+    const selectedManga = new Set(mangaIds);
+    const chapters = chapterIds
+      .map((id) => danglingChapters.get(id)!)
+      .filter((chapter) => !selectedManga.has(chapter.mangaId));
+    const manga = mangaIds.map((id) => mangaForDeletion(id)!);
+    for (const item of manga) {
+      removeMangaFiles(item);
+    }
+    for (const chapter of chapters) {
+      removeChapterFiles(chapter.id);
+    }
+    const removeManga = db.prepare("DELETE FROM manga WHERE id=?");
+    const clearCover = db.prepare(
+      "UPDATE manga SET cover=NULL WHERE id=? AND cover GLOB ?",
+    );
+    const removeChapterAssets = db.prepare(
+      "DELETE FROM media_assets WHERE manga_id=? AND file GLOB ?",
+    );
+    const removeChapter = db.prepare("DELETE FROM chapters WHERE id=?");
+    db.transaction(() => {
+      for (const chapter of chapters) {
+        const pattern = `${chapter.id}/*`;
+        clearCover.run(chapter.mangaId, pattern);
+        removeChapterAssets.run(chapter.mangaId, pattern);
+        removeChapter.run(chapter.id);
+      }
+      for (const item of manga) {
+        removeManga.run(item.id);
+      }
+      for (const mangaId of new Set(
+        chapters.map((chapter) => chapter.mangaId),
+      )) {
+        const remaining = db
+          .prepare(
+            "SELECT id FROM chapters WHERE manga_id=? ORDER BY position,rowid",
+          )
+          .all(mangaId) as { id: string }[];
+        const updatePosition = db.prepare(
+          "UPDATE chapters SET position=? WHERE id=?",
+        );
+        remaining.forEach((chapter, index) =>
+          updatePosition.run(index, chapter.id),
+        );
+      }
+    })();
+    log.info("dangling.deleted", "悬垂内容已删除", {
+      mangaCount: manga.length,
+      chapterCount: chapters.length,
+    });
+    const analysis = readableDangling(
+      await analyzeDangling(),
+      res.locals.user.id,
+    );
+    res.json({
+      deletedManga: manga.length,
+      deletedChapters: chapters.length,
+      analysis,
+    });
+  } finally {
+    finishMaintenance();
+  }
 });
 app.use("/api/manga/:id", (req, res, next) => {
   if (!canRead(res.locals.user.id, String(req.params.id))) {
