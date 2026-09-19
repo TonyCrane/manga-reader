@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowDown,
@@ -26,6 +26,8 @@ export function Detail() {
   const [preview, setPreview] = useState(false);
   const [ascending, setAscending] = useState(true);
   const [version, setVersion] = useState(0);
+  const [floatingActions, setFloatingActions] = useState(false);
+  const backButton = useRef<HTMLButtonElement>(null);
   const load = (signal?: AbortSignal) =>
     api<Manga>(`/manga/${id}`, { signal })
       .then(setM)
@@ -40,6 +42,19 @@ export function Detail() {
     void load(controller.signal);
     return () => controller.abort();
   }, [id]);
+  useEffect(() => {
+    const button = backButton.current;
+    if (!button) {
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      setFloatingActions(
+        !entry.isIntersecting && entry.boundingClientRect.bottom < 0,
+      );
+    });
+    observer.observe(button);
+    return () => observer.disconnect();
+  }, [m?.id]);
   if (!m) {
     return <div className="loading">{error || "正在打开漫画…"}</div>;
   }
@@ -59,9 +74,15 @@ export function Detail() {
     }
     navigate("/", { replace: true });
   }
+  function scrollToTop() {
+    const behavior = matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth";
+    window.scrollTo({ top: 0, behavior });
+  }
   return (
     <>
-      <button className="back-link" onClick={returnToLibrary}>
+      <button ref={backButton} className="back-link" onClick={returnToLibrary}>
         <ArrowLeft size={17} />
         返回书架
       </button>
@@ -186,6 +207,25 @@ export function Detail() {
           </div>
         )}
       </section>
+      <div
+        className="detail-floating-actions"
+        data-visible={floatingActions}
+        aria-hidden={!floatingActions}
+        inert={!floatingActions}
+      >
+        <button className="detail-floating-back" onClick={returnToLibrary}>
+          <ArrowLeft size={17} />
+          返回书架
+        </button>
+        <button
+          className="detail-floating-top"
+          aria-label="回到顶部"
+          title="回到顶部"
+          onClick={scrollToTop}
+        >
+          <ArrowUp size={18} />
+        </button>
+      </div>
       {editing && (
         <MangaEditor
           m={m}
