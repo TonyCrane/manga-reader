@@ -260,15 +260,10 @@ export function Library() {
               )
             );
           }
-          if (sort === "published") {
-            if (!a.published) {
-              return b.published ? 1 : 0;
-            }
-            if (!b.published) {
-              return -1;
-            }
+          if (sort === "updated") {
             return (
-              direction * a.published.localeCompare(b.published) ||
+              direction *
+                (parseTimestamp(a.updated) - parseTimestamp(b.updated)) ||
               libraryTitle(a, titleLanguage).localeCompare(
                 libraryTitle(b, titleLanguage),
               )
@@ -536,7 +531,7 @@ export function Library() {
             <option value="count">话数排序</option>
             <option value="pages">页数排序</option>
             <option value="created">导入时间</option>
-            <option value="published">发布时间</option>
+            <option value="updated">更新时间</option>
           </select>
           <button
             className="icon"

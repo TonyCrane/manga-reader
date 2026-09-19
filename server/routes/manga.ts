@@ -156,7 +156,7 @@ const metadata = z.object({
   title: z.string().trim().max(200).nullable().optional(),
   titleZh: z.string().trim().max(200).optional(),
   author: z.string().trim().max(200).optional(),
-  published: z.string().max(100).optional(),
+  updated: z.string().datetime({ offset: true }).optional(),
   created: z.string().datetime({ offset: true }).optional(),
   tags: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
   splitPages: z.boolean().optional(),
@@ -185,11 +185,11 @@ mangaRoutes.patch("/manga/:id", (req, res) => {
       title_override = ?,
       title_zh = ?,
       author = ?,
-      published = ?,
       tags = ?,
       manual_tags = ?,
       split_pages = ?,
-      created = ?
+      created = ?,
+      updated = ?
     WHERE id = ?
     `,
   ).run(
@@ -197,13 +197,13 @@ mangaRoutes.patch("/manga/:id", (req, res) => {
     override,
     input.titleZh ?? old.title_zh,
     input.author ?? old.author,
-    input.published ?? old.published,
     JSON.stringify(
       input.tags === undefined ? old.tags : [...new Set(input.tags)],
     ),
     input.tags === undefined ? old.manual_tags : 1,
     Number(splitPages),
     input.created ?? old.created,
+    input.updated ?? old.updated,
     req.params.id,
   );
   if (splitPagesChanged) {

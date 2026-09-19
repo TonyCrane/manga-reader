@@ -158,7 +158,13 @@ export function MangaEditor({
                   title: String(f.get("title")).trim() || null,
                   titleZh: String(f.get("titleZh")).trim(),
                   author: f.get("author"),
-                  published: f.get("published"),
+                  ...(f.get("updated") !== localDateTime(m.updated)
+                    ? {
+                        updated: new Date(
+                          String(f.get("updated")),
+                        ).toISOString(),
+                      }
+                    : {}),
                   ...(f.get("created") !== localDateTime(m.created)
                     ? {
                         created: new Date(
@@ -238,8 +244,13 @@ export function MangaEditor({
               />
             </label>
             <label>
-              发布时间
-              <input name="published" type="date" defaultValue={m.published} />
+              更新时间
+              <input
+                name="updated"
+                type="datetime-local"
+                required
+                defaultValue={localDateTime(m.updated)}
+              />
             </label>
           </div>
           <label>

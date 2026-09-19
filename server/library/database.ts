@@ -69,12 +69,12 @@ db.exec(`
     scanned_title TEXT,
     title_override TEXT,
     author TEXT DEFAULT '',
-    published TEXT DEFAULT '',
     tags TEXT DEFAULT '[]',
     manual_tags INTEGER DEFAULT 0,
     split_pages INTEGER NOT NULL DEFAULT 1,
     cover TEXT,
-    created TEXT DEFAULT CURRENT_TIMESTAMP
+    created TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated TEXT DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS chapters (
@@ -132,7 +132,7 @@ db.exec(`
     library_sort TEXT NOT NULL DEFAULT 'title'
       CHECK (
         library_sort IN (
-          'title', 'author', 'count', 'pages', 'created', 'published'
+          'title', 'author', 'count', 'pages', 'created', 'updated'
         )
       ),
     library_ascending INTEGER NOT NULL DEFAULT 1
@@ -193,7 +193,11 @@ if (!preferenceColumns.some((column) => column.name === "title_language")) {
 const preferenceTable = db
   .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
   .get("user_preferences") as { sql: string };
-if (!preferenceTable.sql.includes("'pages'")) {
+if (
+  !preferenceTable.sql.includes("'pages'") ||
+  !preferenceTable.sql.includes("'updated'") ||
+  preferenceTable.sql.includes("'published'")
+) {
   db.transaction(() => {
     db.exec(`
       CREATE TABLE user_preferences_next (
@@ -201,7 +205,7 @@ if (!preferenceTable.sql.includes("'pages'")) {
         library_sort TEXT NOT NULL DEFAULT 'title'
           CHECK (
             library_sort IN (
-              'title', 'author', 'count', 'pages', 'created', 'published'
+              'title', 'author', 'count', 'pages', 'created', 'updated'
             )
           ),
         library_ascending INTEGER NOT NULL DEFAULT 1
@@ -213,7 +217,11 @@ if (!preferenceTable.sql.includes("'pages'")) {
       INSERT INTO user_preferences_next (
         user_id, library_sort, library_ascending, title_language
       )
-      SELECT user_id, library_sort, library_ascending, title_language
+      SELECT
+        user_id,
+        CASE library_sort WHEN 'published' THEN 'updated' ELSE library_sort END,
+        library_ascending,
+        title_language
       FROM user_preferences;
 
       DROP TABLE user_preferences;
@@ -254,6 +262,27 @@ if (!mangaColumns.has("split_pages")) {
   db.exec(
     "ALTER TABLE manga ADD COLUMN split_pages INTEGER NOT NULL DEFAULT 1",
   );
+}
+if (!mangaColumns.has("updated") || mangaColumns.has("published")) {
+  db.transaction(() => {
+    if (!mangaColumns.has("updated")) {
+      db.exec("ALTER TABLE manga ADD COLUMN updated TEXT");
+    }
+    db.exec(`
+      UPDATE manga
+      SET updated = COALESCE(NULLIF(created, ''), CURRENT_TIMESTAMP)
+      WHERE updated IS NULL OR updated = ''
+    `);
+    if (mangaColumns.has("published")) {
+      db.exec("ALTER TABLE manga DROP COLUMN published");
+    }
+  })();
+} else {
+  db.exec(`
+    UPDATE manga
+    SET updated = COALESCE(NULLIF(created, ''), CURRENT_TIMESTAMP)
+    WHERE updated IS NULL OR updated = ''
+  `);
 }
 
 const chapterColumns = new Set(
@@ -304,12 +333,12 @@ type MangaRow = {
   scanned_title: string | null;
   title_override: string | null;
   author: string;
-  published: string;
   tags: string;
   manual_tags: number;
   split_pages: number;
   cover: string | null;
   created: string;
+  updated: string;
   chapterCount: number;
   pageCount: number;
 };

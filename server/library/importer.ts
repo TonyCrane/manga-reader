@@ -200,6 +200,7 @@ export function startImport(source: Source, mode: RefreshMode = "all") {
 
 async function run(source: Source, id: string, mode: RefreshMode) {
   const startedAt = Date.now();
+  const refreshedAt = new Date(startedAt).toISOString();
   const root = await safeDirectory(source.path);
   let candidates: { p: string; author?: string }[] = [];
   if (source.mode === "manual") {
@@ -279,10 +280,10 @@ async function run(source: Source, id: string, mode: RefreshMode) {
     db.transaction(() => {
       db.prepare(
         `
-        INSERT OR IGNORE INTO manga(id,path,title,author,tags)
-        VALUES(?,?,?,?,?)
+        INSERT OR IGNORE INTO manga(id,path,title,author,tags,updated)
+        VALUES(?,?,?,?,?,?)
         `,
-      ).run(mid, mangaPath, scannedTitle, plan.author || "", "[]");
+      ).run(mid, mangaPath, scannedTitle, plan.author || "", "[]", refreshedAt);
       db.prepare("INSERT OR IGNORE INTO manga_sources VALUES(?,?)").run(
         mid,
         source.id,
@@ -422,6 +423,12 @@ async function run(source: Source, id: string, mode: RefreshMode) {
           path.basename(chapter.path),
           cid,
         );
+        if (!old) {
+          db.prepare("UPDATE manga SET updated=? WHERE id=?").run(
+            refreshedAt,
+            mid,
+          );
+        }
       })();
     }
     const ordered = (

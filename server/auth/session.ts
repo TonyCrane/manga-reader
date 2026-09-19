@@ -42,7 +42,7 @@ const librarySort = z.enum([
   "count",
   "pages",
   "created",
-  "published",
+  "updated",
 ]);
 export const publicUser = (user: UserWithPreferences) => {
   const joinedPreferences = Object.hasOwn(user, "library_sort");

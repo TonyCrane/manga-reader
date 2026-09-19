@@ -27,7 +27,7 @@ export interface Manga {
   created: string;
   manual_tags: number;
   author: string;
-  published: string;
+  updated: string;
   tags: string[];
   chapterCount: number;
   pageCount: number;
@@ -59,7 +59,7 @@ export interface Job {
 }
 
 export type LibrarySort =
-  "title" | "author" | "count" | "pages" | "created" | "published";
+  "title" | "author" | "count" | "pages" | "created" | "updated";
 
 export interface User {
   id: string;

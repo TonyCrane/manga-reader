@@ -13,6 +13,7 @@ import type { Manga } from "../types";
 import { useAccount } from "../context/AccountContext";
 import { PagePreview } from "../components/PagePreview";
 import { MangaEditor } from "../components/MangaEditor";
+import { parseTimestamp } from "../lib/dates";
 import {
   detailHistoryState,
   getDetailViewState,
@@ -143,7 +144,10 @@ export function Detail() {
             {m.pageCount} 页
           </p>
           <p className="muted">
-            {m.published ? `发布时间 ${m.published}` : "发布时间未填写"}
+            更新时间{" "}
+            <time dateTime={m.updated}>
+              {new Date(parseTimestamp(m.updated)).toLocaleString("zh-CN")}
+            </time>
           </p>
           <div className="tags">
             {m.tags.map((tag) => (
