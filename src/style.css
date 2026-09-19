@@ -876,14 +876,23 @@ progress::-webkit-progress-value {
   overflow: hidden;
 }
 .sheet::backdrop {
+  background: transparent;
+}
+.sheet::before {
+  content: "";
+  position: absolute;
+  inset: 0;
   background: #11182770;
   backdrop-filter: blur(3px);
+  opacity: var(--sheet-backdrop-opacity, 1);
+  pointer-events: none;
 }
 .sheet-inner {
   position: absolute;
+  z-index: 1;
   bottom: 0;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate3d(-50%, var(--sheet-drag-y, 0px), 0);
   width: min(100%, 620px);
   max-height: 88dvh;
   overflow: auto;
@@ -904,12 +913,26 @@ progress::-webkit-progress-value {
     translate: 0 0;
   }
 }
+.sheet-drag-region {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 24px;
+  margin: -6px 0 0;
+  padding-top: 6px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.sheet-drag-region:active {
+  cursor: grabbing;
+}
 .handle {
   height: 4px;
   width: 34px;
   background: var(--line);
   border-radius: 5px;
-  margin: 0 auto 10px;
+  pointer-events: none;
 }
 .sheet header {
   display: flex;
@@ -959,7 +982,7 @@ progress::-webkit-progress-value {
 .detail-floating-actions {
   position: fixed;
   z-index: 9;
-  top: calc(48px + env(safe-area-inset-top));
+  top: calc(32px + env(safe-area-inset-top));
   left: max(5vw, calc((100vw - 1280px) / 2));
   display: flex;
   align-items: center;
@@ -1547,7 +1570,7 @@ form h3 {
   }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .sheet::backdrop {
+  .sheet::before {
     backdrop-filter: none;
     background: #111827b0;
   }

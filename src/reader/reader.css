@@ -341,13 +341,13 @@ body.reading.reader-menu-open {
     right: 0;
     top: 0;
     bottom: 0;
-    transform: none;
+    transform: translate3d(0, var(--sheet-drag-y, 0px), 0);
     width: 360px;
     max-height: 100dvh;
     border-radius: 16px 0 0 16px;
     padding-top: 18px;
   }
-  .reader .sheet .handle {
+  .reader .sheet .sheet-drag-region {
     display: none;
   }
   .reader-setting {
