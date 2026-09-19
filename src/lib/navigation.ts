@@ -8,6 +8,19 @@ export type MangaRouteState = {
   libraryBehind: boolean;
 };
 
+export type DetailViewState = {
+  mangaId: string;
+  view: "chapters" | "preview";
+  ascending: boolean;
+  previewPage: number;
+  scrollY: number;
+};
+
+type DetailHistoryState = {
+  origin?: "library";
+  detailView: DetailViewState;
+};
+
 export type SettingsRouteState = {
   origin: "settings";
 };
@@ -29,6 +42,50 @@ export function mangaRouteState(
     mangaId,
     libraryBehind,
   };
+}
+
+export function detailHistoryState(
+  state: unknown,
+  detailView: DetailViewState,
+): DetailHistoryState {
+  return {
+    ...(isLibraryRouteState(state) ? libraryRouteState : {}),
+    detailView,
+  };
+}
+
+export function getDetailViewState(
+  state: unknown,
+  mangaId: string | undefined,
+): DetailViewState | null {
+  if (
+    typeof state !== "object" ||
+    state === null ||
+    !("detailView" in state) ||
+    typeof state.detailView !== "object" ||
+    state.detailView === null
+  ) {
+    return null;
+  }
+  const detailView = state.detailView;
+  if (
+    !("mangaId" in detailView) ||
+    detailView.mangaId !== mangaId ||
+    !("view" in detailView) ||
+    (detailView.view !== "chapters" && detailView.view !== "preview") ||
+    !("ascending" in detailView) ||
+    typeof detailView.ascending !== "boolean" ||
+    !("previewPage" in detailView) ||
+    !Number.isSafeInteger(detailView.previewPage) ||
+    (detailView.previewPage as number) < 0 ||
+    !("scrollY" in detailView) ||
+    typeof detailView.scrollY !== "number" ||
+    !Number.isFinite(detailView.scrollY) ||
+    detailView.scrollY < 0
+  ) {
+    return null;
+  }
+  return detailView as DetailViewState;
 }
 
 export function isLibraryRouteState(

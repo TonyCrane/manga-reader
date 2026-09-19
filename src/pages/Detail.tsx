@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowDown,
@@ -13,21 +13,29 @@ import type { Manga } from "../types";
 import { useAccount } from "../context/AccountContext";
 import { PagePreview } from "../components/PagePreview";
 import { MangaEditor } from "../components/MangaEditor";
-import { isLibraryRouteState, mangaRouteState } from "../lib/navigation";
+import {
+  detailHistoryState,
+  getDetailViewState,
+  isLibraryRouteState,
+  mangaRouteState,
+} from "../lib/navigation";
 
 export function Detail() {
   const { id } = useParams();
   const { user } = useAccount();
   const navigate = useNavigate();
   const location = useLocation();
+  const savedView = getDetailViewState(location.state, id);
   const [m, setM] = useState<Manga | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
-  const [preview, setPreview] = useState(false);
-  const [ascending, setAscending] = useState(true);
+  const [preview, setPreview] = useState(savedView?.view === "preview");
+  const [ascending, setAscending] = useState(savedView?.ascending ?? true);
+  const [previewPage, setPreviewPage] = useState(savedView?.previewPage ?? 0);
   const [version, setVersion] = useState(0);
   const [floatingActions, setFloatingActions] = useState(false);
   const backButton = useRef<HTMLButtonElement>(null);
+  const restoreScrollY = useRef(savedView?.scrollY ?? null);
   const load = (signal?: AbortSignal) =>
     api<Manga>(`/manga/${id}`, { signal })
       .then(setM)
@@ -55,9 +63,18 @@ export function Detail() {
     observer.observe(button);
     return () => observer.disconnect();
   }, [m?.id]);
+  useLayoutEffect(() => {
+    if (!m || restoreScrollY.current === null) {
+      return;
+    }
+    const scrollY = restoreScrollY.current;
+    restoreScrollY.current = null;
+    window.scrollTo(0, scrollY);
+  }, [m]);
   if (!m) {
     return <div className="loading">{error || "正在打开漫画…"}</div>;
   }
+  const mangaId = m.id;
   const chapters = m.chapters.map((chapter, index) => ({
     chapter,
     number: index + 1,
@@ -73,6 +90,18 @@ export function Detail() {
       return;
     }
     navigate("/", { replace: true });
+  }
+  function saveReaderOrigin() {
+    navigate(`${location.pathname}${location.search}${location.hash}`, {
+      replace: true,
+      state: detailHistoryState(location.state, {
+        mangaId,
+        view: preview ? "preview" : "chapters",
+        ascending,
+        previewPage,
+        scrollY: window.scrollY,
+      }),
+    });
   }
   function scrollToTop() {
     const behavior = matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -134,6 +163,7 @@ export function Detail() {
                 className="primary"
                 to={`/read/${id}/${m.chapters[0].id}`}
                 state={readerRouteState}
+                onClick={saveReaderOrigin}
               >
                 <BookOpen size={18} />
                 开始阅读
@@ -172,7 +202,10 @@ export function Detail() {
             className="chapter-order"
             aria-label={ascending ? "正序，切换为倒序" : "倒序，切换为正序"}
             title={ascending ? "切换为倒序" : "切换为正序"}
-            onClick={() => setAscending((value) => !value)}
+            onClick={() => {
+              setAscending((value) => !value);
+              setPreviewPage(0);
+            }}
           >
             {ascending ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
             {ascending ? "正序" : "倒序"}
@@ -184,6 +217,9 @@ export function Detail() {
             mangaId={m.id}
             chapters={chapters}
             readerRouteState={readerRouteState}
+            pageIndex={previewPage}
+            onPageIndexChange={setPreviewPage}
+            onReaderOpen={saveReaderOrigin}
           />
         ) : (
           <div className="chapter-grid">
@@ -193,6 +229,7 @@ export function Detail() {
                 to={`/read/${id}/${chapter.id}`}
                 state={readerRouteState}
                 className="chapter-card"
+                onClick={saveReaderOrigin}
               >
                 <span className="chapter-number">
                   {String(number).padStart(2, "0")}

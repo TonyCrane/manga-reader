@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { Link } from "react-router-dom";
 import { media } from "../lib/api";
 import type { MangaRouteState } from "../lib/navigation";
@@ -10,15 +10,20 @@ export function PagePreview({
   mangaId,
   chapters,
   readerRouteState,
+  pageIndex,
+  onPageIndexChange,
+  onReaderOpen,
 }: {
   mangaId: string;
   chapters: { chapter: Chapter; number: number }[];
   readerRouteState: MangaRouteState;
+  pageIndex: number;
+  onPageIndexChange: (page: number) => void;
+  onReaderOpen: () => void;
 }) {
-  const [pageIndex, setPageIndex] = useState(0);
   const top = useRef<HTMLDivElement>(null);
   function changePage(value: number) {
-    setPageIndex(value);
+    onPageIndexChange(value);
     top.current?.scrollIntoView({ block: "start" });
   }
   const total = chapters.reduce(
@@ -97,6 +102,7 @@ export function PagePreview({
                 to={`/read/${mangaId}/${chapter.id}?page=${start + index + 1}`}
                 state={readerRouteState}
                 className="preview-page"
+                onClick={onReaderOpen}
               >
                 <div className="preview-image">
                   {page.thumbnail ? (
