@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import {
   ArrowLeft,
   Settings,
@@ -13,6 +18,7 @@ import type { Manga, Page } from "../types";
 import { Sheet } from "../components/Sheet";
 import { spreads, spreadIndex } from "./pagination";
 import { useGestures } from "./useGestures";
+import { isMangaRouteState } from "../lib/navigation";
 import "./reader.css";
 
 type Preferences = {
@@ -58,6 +64,8 @@ function landscapePagePreferences(): LandscapePagePreferences {
 export function Reader() {
   const { id, chapterId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const routeState = location.state;
   const [m, setM] = useState<Manga | null>(null);
   const [error, setError] = useState("");
   const [searchParams] = useSearchParams();
@@ -186,12 +194,15 @@ export function Reader() {
         return;
       }
       setPage(last ? next.pages.length - 1 : 0);
-      navigate(`/read/${id}/${next.id}`, { replace: true });
+      navigate(`/read/${id}/${next.id}`, {
+        replace: true,
+        state: routeState,
+      });
       setToast(next.title);
       setSheet(null);
       scrollTarget.current = next.id;
     },
-    [m, id, navigate],
+    [m, id, navigate, routeState],
   );
   const turn = useCallback(
     (direction: number) => {
@@ -395,7 +406,10 @@ export function Reader() {
         if (el) {
           setPage(Number(el.dataset.page));
           if (el.dataset.chapter !== chapterId) {
-            navigate(`/read/${id}/${el.dataset.chapter}`, { replace: true });
+            navigate(`/read/${id}/${el.dataset.chapter}`, {
+              replace: true,
+              state: routeState,
+            });
             setToast(
               m.chapters.find((c) => c.id === el.dataset.chapter)?.title || "",
             );
@@ -409,7 +423,7 @@ export function Reader() {
       el.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(frame);
     };
-  }, [prefs.mode, m, chapterId, id, navigate]);
+  }, [prefs.mode, m, chapterId, id, navigate, routeState]);
   useEffect(() => {
     if (prefs.mode === "scroll" && chapter) {
       document.getElementById(`scroll-${chapter.id}-${page}`)?.scrollIntoView();
@@ -421,11 +435,25 @@ export function Reader() {
       document.getElementById(`scroll-${chapterId}-${value}`)?.scrollIntoView();
     }
   }
+  function returnToManga() {
+    if (isMangaRouteState(routeState, id)) {
+      navigate(-1);
+      return;
+    }
+    navigate(`/manga/${id}`, { replace: true });
+  }
+  function returnToLibrary() {
+    if (isMangaRouteState(routeState, id) && routeState.libraryBehind) {
+      navigate(-2);
+      return;
+    }
+    navigate("/", { replace: true });
+  }
   if (error) {
     return (
       <div className="reader-error">
         {error}
-        <button onClick={() => navigate("/")}>返回书架</button>
+        <button onClick={returnToLibrary}>返回书架</button>
       </div>
     );
   }
@@ -441,7 +469,7 @@ export function Reader() {
     return (
       <div className="reader-error">
         章节不存在
-        <button onClick={() => navigate(`/manga/${id}`)}>返回目录</button>
+        <button onClick={returnToManga}>返回目录</button>
       </div>
     );
   }
@@ -563,7 +591,7 @@ export function Reader() {
           <button
             className="icon"
             aria-label="返回章节目录"
-            onClick={() => navigate(`/manga/${id}`)}
+            onClick={returnToManga}
           >
             <ArrowLeft size={24} />
           </button>

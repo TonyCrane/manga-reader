@@ -15,6 +15,7 @@ import { TranslationSettings } from "../components/TranslationSettings";
 import { Sheet } from "../components/Sheet";
 import { About } from "../components/About";
 import { PasswordForm } from "../components/PasswordForm";
+import { settingsRouteState } from "../lib/navigation";
 
 export function SettingsPage({
   theme,
@@ -89,7 +90,11 @@ export function SettingsPage({
             <ChevronRight size={18} aria-hidden="true" />
           </button>
           {user.isAdmin && (
-            <Link className="settings-row" to="/settings/system">
+            <Link
+              className="settings-row"
+              to="/settings/system"
+              state={settingsRouteState}
+            >
               <Settings2 size={20} aria-hidden="true" />
               <span>系统管理</span>
               <ChevronRight size={18} aria-hidden="true" />

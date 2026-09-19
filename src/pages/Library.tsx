@@ -17,6 +17,7 @@ import { TagInput } from "../components/TagInput";
 import { parseTimestamp } from "../lib/dates";
 import { SearchFilter } from "../components/SearchFilter";
 import { api, json } from "../lib/api";
+import { libraryRouteState } from "../lib/navigation";
 import type { LibrarySort, Manga } from "../types";
 import { Sheet } from "../components/Sheet";
 
@@ -111,7 +112,12 @@ function LibraryCard({
     );
   }
   return (
-    <Link className="manga-card" to={`/manga/${manga.id}`} onClick={onOpen}>
+    <Link
+      className="manga-card"
+      to={`/manga/${manga.id}`}
+      state={libraryRouteState}
+      onClick={onOpen}
+    >
       {content}
     </Link>
   );

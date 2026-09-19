@@ -24,10 +24,11 @@ import type {
 } from "../types";
 import { useAccount } from "../context/AccountContext";
 import { UserManagement } from "../components/UserManagement";
-import { Link } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import type { User } from "../types";
 import { Sheet } from "../components/Sheet";
 import { parseTimestamp } from "../lib/dates";
+import { isSettingsRouteState } from "../lib/navigation";
 
 const modes: Record<string, string> = {
   manual: "指定漫画",
@@ -118,6 +119,8 @@ export function SystemSettings({
   onAppNameChanged: (appName: string) => void;
 }) {
   const { user } = useAccount();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [name, setName] = useState(appName);
   const [savingName, setSavingName] = useState(false);
   const [nameError, setNameError] = useState("");
@@ -327,12 +330,19 @@ export function SystemSettings({
       ),
     );
   }
+  function returnToSettings() {
+    if (isSettingsRouteState(location.state)) {
+      navigate(-1);
+      return;
+    }
+    navigate("/settings", { replace: true });
+  }
   return (
     <>
-      <Link className="back-link" to="/settings">
+      <button className="back-link" onClick={returnToSettings}>
         <ArrowLeft size={17} />
         返回设置
-      </Link>
+      </button>
       <section className="page-heading">
         <div>
           <h1>系统管理</h1>

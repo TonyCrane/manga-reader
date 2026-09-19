@@ -951,6 +951,7 @@ progress::-webkit-progress-value {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  padding: 0;
   color: var(--muted);
   font-size: 13px;
   margin-bottom: 30px;

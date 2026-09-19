@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowDown,
   ArrowLeft,
@@ -13,11 +13,13 @@ import type { Manga } from "../types";
 import { useAccount } from "../context/AccountContext";
 import { PagePreview } from "../components/PagePreview";
 import { MangaEditor } from "../components/MangaEditor";
+import { isLibraryRouteState, mangaRouteState } from "../lib/navigation";
 
 export function Detail() {
   const { id } = useParams();
   const { user } = useAccount();
   const navigate = useNavigate();
+  const location = useLocation();
   const [m, setM] = useState<Manga | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
@@ -48,12 +50,21 @@ export function Detail() {
   if (!ascending) {
     chapters.reverse();
   }
+  const fromLibrary = isLibraryRouteState(location.state);
+  const readerRouteState = mangaRouteState(m.id, fromLibrary);
+  function returnToLibrary() {
+    if (fromLibrary) {
+      navigate(-1);
+      return;
+    }
+    navigate("/", { replace: true });
+  }
   return (
     <>
-      <Link className="back-link" to="/">
+      <button className="back-link" onClick={returnToLibrary}>
         <ArrowLeft size={17} />
         返回书架
-      </Link>
+      </button>
       <section className="detail-hero">
         <div className="detail-cover">
           <img
@@ -98,7 +109,11 @@ export function Detail() {
           </div>
           <div className="detail-actions">
             {m.chapters[0] && (
-              <Link className="primary" to={`/read/${id}/${m.chapters[0].id}`}>
+              <Link
+                className="primary"
+                to={`/read/${id}/${m.chapters[0].id}`}
+                state={readerRouteState}
+              >
                 <BookOpen size={18} />
                 开始阅读
                 <ArrowRight size={17} />
@@ -147,6 +162,7 @@ export function Detail() {
             key={`${id}-${ascending}`}
             mangaId={m.id}
             chapters={chapters}
+            readerRouteState={readerRouteState}
           />
         ) : (
           <div className="chapter-grid">
@@ -154,6 +170,7 @@ export function Detail() {
               <Link
                 key={chapter.id}
                 to={`/read/${id}/${chapter.id}`}
+                state={readerRouteState}
                 className="chapter-card"
               >
                 <span className="chapter-number">
@@ -177,7 +194,7 @@ export function Detail() {
             await load();
             setVersion((v) => v + 1);
           }}
-          onDelete={() => navigate("/")}
+          onDelete={() => navigate("/", { replace: true })}
         />
       )}
     </>

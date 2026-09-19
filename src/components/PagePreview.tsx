@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { media } from "../lib/api";
+import type { MangaRouteState } from "../lib/navigation";
 import type { Chapter } from "../types";
 
 const pageSize = 100;
@@ -8,9 +9,11 @@ const pageSize = 100;
 export function PagePreview({
   mangaId,
   chapters,
+  readerRouteState,
 }: {
   mangaId: string;
   chapters: { chapter: Chapter; number: number }[];
+  readerRouteState: MangaRouteState;
 }) {
   const [pageIndex, setPageIndex] = useState(0);
   const top = useRef<HTMLDivElement>(null);
@@ -92,6 +95,7 @@ export function PagePreview({
               <Link
                 key={page.id}
                 to={`/read/${mangaId}/${chapter.id}?page=${start + index + 1}`}
+                state={readerRouteState}
                 className="preview-page"
               >
                 <div className="preview-image">
