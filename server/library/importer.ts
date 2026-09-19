@@ -280,10 +280,20 @@ async function run(source: Source, id: string, mode: RefreshMode) {
     db.transaction(() => {
       db.prepare(
         `
-        INSERT OR IGNORE INTO manga(id,path,title,author,tags,updated)
-        VALUES(?,?,?,?,?,?)
+        INSERT OR IGNORE INTO manga(
+          id,path,title,author,tags,created,updated
+        )
+        VALUES(?,?,?,?,?,?,?)
         `,
-      ).run(mid, mangaPath, scannedTitle, plan.author || "", "[]", refreshedAt);
+      ).run(
+        mid,
+        mangaPath,
+        scannedTitle,
+        plan.author || "",
+        "[]",
+        refreshedAt,
+        refreshedAt,
+      );
       db.prepare("INSERT OR IGNORE INTO manga_sources VALUES(?,?)").run(
         mid,
         source.id,

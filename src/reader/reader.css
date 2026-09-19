@@ -164,8 +164,11 @@ body.reading.reader-menu-open {
   min-width: 70px;
   padding: 6px;
 }
-.reader .sheet-inner {
+.reader .sheet-inner,
+.reader .sheet-drag-fill {
   background: #191d2b;
+}
+.reader .sheet-motion {
   max-width: 640px;
 }
 .reader .sheet header {
@@ -336,16 +339,22 @@ body.reading.reader-menu-open {
   color: #ddd;
 }
 @media (orientation: landscape) {
-  .reader .sheet-inner {
+  .reader .sheet-motion {
     left: auto;
     right: 0;
     top: 0;
     bottom: 0;
     transform: translate3d(0, var(--sheet-drag-y, 0px), 0);
     width: 360px;
+  }
+  .reader .sheet-inner {
+    height: 100%;
     max-height: 100dvh;
     border-radius: 16px 0 0 16px;
     padding-top: 18px;
+  }
+  .reader .sheet-drag-fill {
+    display: none;
   }
   .reader .sheet .sheet-drag-region {
     display: none;

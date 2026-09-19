@@ -245,25 +245,28 @@ export function Sheet({
         }
       }}
     >
-      <div ref={panel} className="sheet-inner">
-        <div
-          className="sheet-drag-region"
-          aria-hidden="true"
-          onPointerDown={startDrag}
-          onPointerMove={moveDrag}
-          onPointerUp={finishDrag}
-          onPointerCancel={cancelDrag}
-          onLostPointerCapture={cancelDrag}
-        >
-          <div className="handle" />
+      <div ref={panel} className="sheet-motion">
+        <div className="sheet-inner">
+          <div
+            className="sheet-drag-region"
+            aria-hidden="true"
+            onPointerDown={startDrag}
+            onPointerMove={moveDrag}
+            onPointerUp={finishDrag}
+            onPointerCancel={cancelDrag}
+            onLostPointerCapture={cancelDrag}
+          >
+            <div className="handle" />
+          </div>
+          <header>
+            <h2 id={titleId}>{title}</h2>
+            <button className="icon" aria-label="关闭" onClick={onClose}>
+              <X size={22} />
+            </button>
+          </header>
+          {children}
         </div>
-        <header>
-          <h2 id={titleId}>{title}</h2>
-          <button className="icon" aria-label="关闭" onClick={onClose}>
-            <X size={22} />
-          </button>
-        </header>
-        {children}
+        <div className="sheet-drag-fill" aria-hidden="true" />
       </div>
     </dialog>
   );
