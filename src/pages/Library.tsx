@@ -192,13 +192,19 @@ export function Library() {
     next.delete("author");
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams, titleLanguage, user.id]);
-  const { authors, tags } = useMemo(
-    () => ({
-      authors: [...new Set(manga.map((item) => item.author).filter(Boolean))],
+  const { authors, authorCounts, tags } = useMemo(() => {
+    const authorCounts = new Map<string, number>();
+    for (const item of manga) {
+      if (item.author) {
+        authorCounts.set(item.author, (authorCounts.get(item.author) || 0) + 1);
+      }
+    }
+    return {
+      authors: [...authorCounts.keys()],
+      authorCounts,
       tags: [...new Set(manga.flatMap((item) => item.tags))],
-    }),
-    [manga],
-  );
+    };
+  }, [manga]);
   const filtered = useMemo(
     () =>
       manga
@@ -501,6 +507,7 @@ export function Library() {
           <SearchFilter
             label="作者"
             options={authors}
+            optionCounts={authorCounts}
             value={author}
             onChange={changeAuthor}
           />

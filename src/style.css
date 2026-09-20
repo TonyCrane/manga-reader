@@ -1814,12 +1814,28 @@ form h3 {
   color: var(--accent);
   border-color: var(--accent);
 }
+.filter-search {
+  margin-top: 4px;
+}
+.filter-search input {
+  min-width: 0;
+}
+.filter-search .icon {
+  flex-shrink: 0;
+}
+.filter-summary {
+  margin: 10px 2px 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
 .filter-options {
   display: flex;
   flex-direction: column;
-  margin-top: 16px;
+  margin-top: 10px;
   max-height: 55dvh;
   overflow: auto;
+  border-top: 1px solid var(--line);
 }
 .filter-options button {
   text-align: left;
@@ -1830,8 +1846,37 @@ form h3 {
   justify-content: space-between;
   gap: 10px;
 }
+.filter-options button[aria-selected="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.filter-option-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.filter-option-meta {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+}
+.filter-option-count {
+  padding: 3px 7px;
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--soft);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
 .filter-options button svg {
   color: var(--accent);
+}
+.filter-options-empty {
+  margin: 0;
+  padding: 28px 10px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 12px;
 }
 @media (max-width: 600px) {
   .filters .filter-trigger {
